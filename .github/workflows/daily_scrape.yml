@@ -1,0 +1,62 @@
+name: Daily Job Signal Scrape
+
+on:
+  schedule:
+    # Run every day at 06:00 UTC (07:00 CET / 08:00 CEST)
+    - cron: '0 6 * * *'
+  
+  # Allow manual trigger from GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      source:
+        description: 'Source to scrape'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - jsearch
+          - wellfound
+      dry_run:
+        description: 'Dry run (print only, no sheets)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scraper
+        env:
+          JSEARCH_API_KEY: ${{ secrets.JSEARCH_API_KEY }}
+          GOOGLE_SHEETS_CREDS_JSON: ${{ secrets.GOOGLE_SHEETS_CREDS_JSON }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+        run: |
+          python main.py \
+            --source ${{ github.event.inputs.source || 'all' }} \
+            --max-queries 6 \
+            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}
+
+      - name: Upload CSV artifacts (fallback)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraper-output-${{ github.run_number }}
+          path: output/
+          retention-days: 30
+          if-no-files-found: ignore
