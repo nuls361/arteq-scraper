@@ -1,27 +1,15 @@
-name: Daily Job Signal Scrape
+name: Arteq Daily Scrape
 
 on:
   schedule:
-    # Run every day at 06:00 UTC (07:00 CET / 08:00 CEST)
+    # 06:00 UTC = 07:00 CET / 14:00 SGT
     - cron: '0 6 * * *'
-  
-  # Allow manual trigger from GitHub Actions UI
   workflow_dispatch:
     inputs:
-      source:
-        description: 'Source to scrape'
-        required: false
-        default: 'all'
-        type: choice
-        options:
-          - all
-          - jsearch
-          - wellfound
       dry_run:
-        description: 'Dry run (print only, no sheets)'
+        description: 'Just scrape, skip Sheets write'
         required: false
-        default: false
-        type: boolean
+        default: 'false'
 
 jobs:
   scrape:
@@ -29,34 +17,29 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-          cache: 'pip'
+          python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install requests beautifulsoup4 gspread google-auth
+
+      - name: Write Google credentials
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > credentials.json
 
       - name: Run scraper
         env:
           JSEARCH_API_KEY: ${{ secrets.JSEARCH_API_KEY }}
-          GOOGLE_SHEETS_CREDS_JSON: ${{ secrets.GOOGLE_SHEETS_CREDS_JSON }}
-          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-        run: |
-          python main.py \
-            --source ${{ github.event.inputs.source || 'all' }} \
-            --max-queries 6 \
-            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python quick_run.py
 
-      - name: Upload CSV artifacts (fallback)
-        if: always()
+      - name: Upload CSV backup
         uses: actions/upload-artifact@v4
         with:
-          name: scraper-output-${{ github.run_number }}
-          path: output/
+          name: leads-${{ github.run_number }}
+          path: leads_*.csv
           retention-days: 30
-          if-no-files-found: ignore
