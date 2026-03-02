@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arteq Quick Run v4 — DACH + AI Scoring + Requirements + Google Sheets
+Arteq Quick Run v5 — DACH + AI Scoring + Agency Detection + Google Sheets
 Usage: python quick_run.py
 """
 
@@ -45,16 +45,37 @@ QUERIES = [
     "Head of Operations in Germany",
 ]
 
+# ── Static blacklists (first defense line) ──────────────────
+# Staffing agencies, consultancies, and interim management providers
 EXCLUDED_COMPANIES = [
+    # Big staffing / recruitment
     "hays", "robert half", "michael page", "page group",
     "kienbaum", "spencer stuart", "randstad", "adecco",
     "manpower", "brunel", "gulp", "amadeus fire", "dis ag",
+    "jobot", "insight global", "robert joseph", "b2bcfo",
+    "malloy industries", "robert walters",
+    # Big 4 / MBB consulting
     "mckinsey", "bcg", "bain", "deloitte", "pwc", "kpmg", "ey",
-    "accenture", "ernst & young", "jobot", "insight global",
-    "robert joseph", "b2bcfo", "malloy industries",
+    "accenture", "ernst & young",
+    # DACH interim management agencies (competitors)
+    "atreus", "finatal", "evolution consulting", "jan pethe",
+    "ocm consulting", "morgan philips", "ad idem", "papeve",
+    "butterflymanager", "interim-x", "bridge imp", "taskforce",
+    "aurum interim", "interim partners", "board search",
+    "hunting/her", "boyden", "egon zehnder", "odgers berndtson",
+    "signium", "rochus mummert", "heads!", "mercuri urval",
+    "frederickson partners", "russell reynolds", "the interim group",
+    "ef interim", "contagi interim", "tema consulting",
+    "cfo centre", "the cfo centre", "cfos2go",
+    # Generic agency signals in company name
+    "personalberatung", "executive search", "interim management gmbh",
+    "interim-management", "recruiting gmbh", "headhunter",
 ]
 
-EXCLUDED_TITLES = ["intern ", "internship", "praktikum", "werkstudent", "junior", "assistant to"]
+EXCLUDED_TITLES = [
+    "intern ", "internship", "praktikum", "werkstudent",
+    "junior", "assistant to",
+]
 
 DACH_SIGNALS = [
     "germany", "deutschland", "austria", "österreich", "switzerland", "schweiz",
@@ -62,7 +83,7 @@ DACH_SIGNALS = [
     "düsseldorf", "stuttgart", "vienna", "wien", "zurich", "zürich",
     "leipzig", "dresden", "hannover", "nürnberg", "dortmund", "essen", "bremen",
     "graz", "salzburg", "bern", "basel", "magdeburg", "heidelberg", "potsdam",
-    "lübeck", "aalen", "starnberg", "ludwigshafen",
+    "lübeck", "aalen", "starnberg", "ludwigshafen", "bochum",
 ]
 
 
@@ -121,10 +142,13 @@ def rule_score(title, description, location, is_remote):
 
 
 def claude_analyze(job):
+    """Claude AI analysis with agency detection."""
     if not ANTHROPIC_KEY:
         return None
 
     prompt = f"""Du bist Lead-Qualification-Agent für Arteq, eine DACH-Fractional/Interim-Executive-Vermittlung.
+
+WICHTIG: Arteq ist selbst eine Vermittlung. Wir suchen DIREKTE Mandanten (Firmen die selbst einen Interim/Fractional Executive brauchen), NICHT andere Personalberatungen oder Interim-Management-Agenturen die Mandate für ihre Kunden ausschreiben.
 
 Analysiere dieses Jobposting:
 
@@ -138,6 +162,9 @@ Jobbeschreibung:
 
 Antworte NUR in validem JSON (kein Markdown, keine Backticks):
 {{
+  "is_agency": true/false,
+  "agency_reason": "Falls is_agency=true: Warum ist das eine Agentur/Personalberatung? Falls false: leer lassen",
+  "actual_client": "Falls is_agency=true und der eigentliche Auftraggeber erkennbar ist, Name hier. Sonst 'unbekannt'",
   "engagement_type": "fractional" | "interim" | "full-time" | "convertible",
   "engagement_reasoning": "Ein Satz warum du so klassifiziert hast",
   "lead_score": 0-100,
@@ -146,7 +173,12 @@ Antworte NUR in validem JSON (kein Markdown, keine Backticks):
   "outreach_angle": "Ein konkreter Satz für die erste Kontaktaufnahme mit der Firma",
   "decision_maker_guess": "Wahrscheinlicher Hiring Manager Titel",
   "company_stage_guess": "startup | scaleup | growth | established | unknown"
-}}"""
+}}
+
+SCORING-REGELN:
+- Ist die ausschreibende Firma eine Personalberatung, Interim-Management-Agentur, Headhunter oder Recruiting-Firma → is_agency=true, lead_score MAXIMAL 10, tier="parked"
+- Typische Agentur-Signale: "Im Auftrag unseres Kunden", "für unseren Mandanten", "wir suchen für", mehrere offene Mandate, Firmenname enthält "Consulting", "Partners", "Interim Management", "Executive Search", "Personalberatung"
+- Direkte Firma sucht selbst → is_agency=false, normaler Score basierend auf Relevanz für Fractional/Interim-Vermittlung"""
 
     try:
         resp = requests.post(
@@ -158,7 +190,7 @@ Antworte NUR in validem JSON (kein Markdown, keine Backticks):
             },
             json={
                 "model": "claude-sonnet-4-20250514",
-                "max_tokens": 500,
+                "max_tokens": 600,
                 "messages": [{"role": "user", "content": prompt}],
             },
             timeout=30,
@@ -173,7 +205,15 @@ Antworte NUR in validem JSON (kein Markdown, keine Backticks):
             return None
 
         analysis = json.loads(text.strip())
-        logger.info(f"  → AI: {analysis.get('tier','?')} ({analysis.get('lead_score','?')}) | {analysis.get('engagement_type','?')}")
+
+        # Enforce agency penalty
+        if analysis.get("is_agency"):
+            analysis["lead_score"] = min(analysis.get("lead_score", 0), 10)
+            analysis["tier"] = "parked"
+            logger.info(f"  → AGENCY detected: {analysis.get('agency_reason', '')[:60]}")
+        else:
+            logger.info(f"  → AI: {analysis.get('tier','?')} ({analysis.get('lead_score','?')}) | {analysis.get('engagement_type','?')}")
+
         return analysis
 
     except Exception as e:
@@ -210,9 +250,10 @@ def write_to_sheets(jobs):
 
     # Header row
     header = [
-        "Score", "Company", "Role", "Location", "Signals", "Requirements",
-        "Engagement Type", "Reasoning", "Outreach Angle", "Decision Maker",
-        "Company Stage", "URL", "Posted", "Scraped"
+        "Score", "Company", "Role", "Location", "Signals",
+        "Agency?", "Requirements", "Engagement Type", "Reasoning",
+        "Outreach Angle", "Decision Maker", "Company Stage",
+        "URL", "Posted", "Scraped"
     ]
 
     scraped_date = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -233,12 +274,12 @@ def write_to_sheets(jobs):
             try:
                 ws = sheet.worksheet(tab_name)
             except gspread.WorksheetNotFound:
-                ws = sheet.add_worksheet(title=tab_name, rows=500, cols=15)
+                ws = sheet.add_worksheet(title=tab_name, rows=500, cols=16)
 
             # Get existing data to avoid duplicates
             existing = ws.get_all_values()
             existing_keys = set()
-            if len(existing) > 1:  # Has header + data
+            if len(existing) > 1:
                 for row in existing[1:]:
                     if len(row) >= 3:
                         key = f"{row[1].lower().strip()}_{row[2].lower().strip()[:30]}"
@@ -247,8 +288,7 @@ def write_to_sheets(jobs):
             # Write header if sheet is empty
             if not existing:
                 ws.update('A1', [header])
-                # Bold header formatting
-                ws.format('A1:N1', {'textFormat': {'bold': True}})
+                ws.format('A1:O1', {'textFormat': {'bold': True}})
 
             # Prepare new rows (skip duplicates)
             new_rows = []
@@ -258,12 +298,20 @@ def write_to_sheets(jobs):
                     continue
 
                 ai = job.get("ai_analysis") or {}
+
+                # Agency label
+                if ai.get("is_agency"):
+                    agency_label = f"⚠️ AGENCY: {ai.get('agency_reason', '')[:50]}"
+                else:
+                    agency_label = "✅ Direct" if ai else ""
+
                 row = [
                     job["score"],
                     job["company"],
                     job["title"],
                     job["location"],
                     "; ".join(job["signals"]),
+                    agency_label,
                     ai.get("requirements_summary", ""),
                     ai.get("engagement_type", ""),
                     ai.get("engagement_reasoning", ""),
@@ -277,7 +325,6 @@ def write_to_sheets(jobs):
                 new_rows.append(row)
 
             if new_rows:
-                # Append after existing data
                 start_row = len(existing) + 1 if existing else 2
                 ws.update(f'A{start_row}', new_rows)
                 logger.info(f"  {tab_name}: +{len(new_rows)} new leads (skipped {len(tab_jobs) - len(new_rows)} duplicates)")
@@ -297,7 +344,7 @@ def main():
 
     use_ai = bool(ANTHROPIC_KEY)
     print("\n" + "=" * 90)
-    print("  ARTEQ JOB SIGNAL SCRAPER v4 — DACH + AI + Google Sheets")
+    print("  ARTEQ JOB SIGNAL SCRAPER v5 — DACH + AI + Agency Detection + Sheets")
     print(f"  AI Scoring: {'ON ✓' if use_ai else 'OFF (set ANTHROPIC_API_KEY to enable)'}")
     print(f"  Google Sheets: {'ON ✓' if os.path.exists(CREDENTIALS_FILE) else 'OFF (credentials.json missing)'}")
     print("=" * 90)
@@ -381,8 +428,9 @@ def main():
     # ── AI Analysis ─────────────────────────────────────────
     if use_ai:
         ai_candidates = [j for j in unique if j["score"] >= 25]
-        logger.info(f"Running Claude analysis on {len(ai_candidates)} leads...")
+        logger.info(f"Running Claude analysis on {len(ai_candidates)} leads (agency detection ON)...")
         ai_count = 0
+        agency_count = 0
         for job in ai_candidates:
             logger.info(f"Analyzing: {job['company']} — {job['title']}")
             analysis = claude_analyze(job)
@@ -392,17 +440,28 @@ def main():
                 ai_tier = safe(analysis.get("tier")).lower()
                 job["tier"] = "HOT" if ai_tier == "hot" else "WARM" if ai_tier == "warm" else "Park"
                 ai_count += 1
+                if analysis.get("is_agency"):
+                    agency_count += 1
             time.sleep(0.5)
-        logger.info(f"AI analysis: {ai_count}/{len(ai_candidates)} successful")
+
+        logger.info(f"AI analysis: {ai_count}/{len(ai_candidates)} successful | {agency_count} agencies detected and downgraded")
         unique.sort(key=lambda x: x["score"], reverse=True)
 
     # ── Display ─────────────────────────────────────────────
+    # Split display: real leads first, then agencies
+    real_leads = [j for j in unique if not (j.get("ai_analysis") or {}).get("is_agency")]
+    agencies = [j for j in unique if (j.get("ai_analysis") or {}).get("is_agency")]
+
     print(f"\n  Total: {len(unique)} unique DACH leads")
+    if agencies:
+        print(f"  ⚠️  {len(agencies)} agencies detected and filtered to Parked")
+    print(f"  ✅ {len(real_leads)} direct company leads")
+
     print(f"\n{'='*110}")
-    print(f"  {'Tier':6} {'Score':>5}  {'Company':25} {'Role':32} {'Location':20} {'Requirements'}")
+    print(f"  {'Tier':6} {'Score':>5}  {'Company':25} {'Role':32} {'Location':20}")
     print(f"{'='*110}")
 
-    for job in unique[:35]:
+    for job in real_leads[:35]:
         tier_icon = {"HOT": "🔴", "WARM": "🟡", "Park": "⚪"}.get(job["tier"], "⚪")
         print(f"  {tier_icon} {job['tier']:4} {job['score']:5d}  {job['company'][:25]:25} {job['title'][:32]:32} {job['location'][:20]}")
 
@@ -426,7 +485,18 @@ def main():
             print(f"  {'':13}  🔗 {job['url'][:90]}")
         print()
 
-    print(f"{'='*110}")
+    if agencies:
+        print(f"\n  {'─'*60}")
+        print(f"  ⚠️  AGENCIES DETECTED ({len(agencies)}) — moved to Parked:")
+        print(f"  {'─'*60}")
+        for job in agencies[:10]:
+            ai = job.get("ai_analysis", {})
+            reason = ai.get("agency_reason", "")[:50]
+            client = ai.get("actual_client", "")
+            client_info = f" → Client: {client}" if client and client != "unbekannt" else ""
+            print(f"  ⚠️  {job['company'][:30]:30} {reason}{client_info}")
+
+    print(f"\n{'='*110}")
 
     # ── Google Sheets ───────────────────────────────────────
     if os.path.exists(CREDENTIALS_FILE):
@@ -444,6 +514,7 @@ def main():
         w = csv.writer(f)
         w.writerow([
             "Tier", "Score", "Company", "Role", "Location", "Signals",
+            "Agency?", "Agency Reason", "Actual Client",
             "Requirements", "Engagement Type", "Reasoning",
             "Outreach Angle", "Decision Maker", "Company Stage",
             "URL", "Posted",
@@ -453,6 +524,9 @@ def main():
             w.writerow([
                 job["tier"], job["score"], job["company"], job["title"],
                 job["location"], "; ".join(job["signals"]),
+                "AGENCY" if ai.get("is_agency") else "Direct" if ai else "",
+                ai.get("agency_reason", ""),
+                ai.get("actual_client", ""),
                 ai.get("requirements_summary", ""),
                 ai.get("engagement_type", ""),
                 ai.get("engagement_reasoning", ""),
