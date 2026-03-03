@@ -780,6 +780,297 @@ REGELN:
 
 
 # ═══════════════════════════════════════════════════════════
+# DECISION MAKER FINDER (Apollo + DuckDuckGo fallback)
+# ═══════════════════════════════════════════════════════════
+APOLLO_API_KEY = os.getenv("APOLLO_API_KEY", "")
+
+
+def search_apollo(company_name, title_guess, company_domain=None):
+    """Search Apollo People API (FREE — no credits consumed) for decision maker."""
+    if not APOLLO_API_KEY or not company_name:
+        return None
+
+    # Normalize title for Apollo search
+    title = title_guess.strip()
+    if "/" in title:
+        title = title.split("/")[0].strip()
+
+    try:
+        # Apollo People Search — free, no credits
+        payload = {
+            "person_titles": [title],
+            "q_organization_name": company_name,
+            "page": 1,
+            "per_page": 3,
+        }
+        # If we have a domain, use it — much more accurate
+        if company_domain:
+            payload["q_organization_domains"] = company_domain
+
+        resp = requests.post(
+            "https://api.apollo.io/api/v1/mixed_people/search",
+            headers={
+                "Content-Type": "application/json",
+                "Cache-Control": "no-cache",
+                "X-Api-Key": APOLLO_API_KEY,
+            },
+            json=payload,
+            timeout=15,
+        )
+
+        if resp.status_code != 200:
+            logger.debug(f"  Apollo Search returned {resp.status_code}: {resp.text[:200]}")
+            return None
+
+        data = resp.json()
+        people = data.get("people", [])
+
+        if not people:
+            return None
+
+        # Take the best match
+        person = people[0]
+        name = person.get("name", "")
+        linkedin = person.get("linkedin_url", "")
+        found_title = person.get("title", title_guess)
+        apollo_id = person.get("id", "")
+
+        if not name or len(name) < 2:
+            return None
+
+        logger.info(f"  → Apollo found: {name} ({found_title}) — {linkedin or 'no LinkedIn'}")
+
+        return {
+            "name": name,
+            "title": found_title,
+            "linkedin_url": linkedin or "",
+            "apollo_id": apollo_id,
+            "source": "apollo_search",
+        }
+
+    except Exception as e:
+        logger.debug(f"  Apollo search error: {e}")
+        return None
+
+
+def enrich_apollo(apollo_id=None, name=None, domain=None):
+    """Enrich a person via Apollo (COSTS 1 CREDIT) — returns email + phone."""
+    if not APOLLO_API_KEY:
+        return None
+
+    try:
+        payload = {}
+        if apollo_id:
+            payload["id"] = apollo_id
+        elif name and domain:
+            parts = name.split(" ", 1)
+            payload["first_name"] = parts[0]
+            if len(parts) > 1:
+                payload["last_name"] = parts[1]
+            payload["organization_domain"] = domain
+        else:
+            return None
+
+        payload["reveal_personal_emails"] = False
+        payload["reveal_phone_number"] = True
+
+        resp = requests.post(
+            "https://api.apollo.io/api/v1/people/match",
+            headers={
+                "Content-Type": "application/json",
+                "Cache-Control": "no-cache",
+                "X-Api-Key": APOLLO_API_KEY,
+            },
+            json=payload,
+            timeout=15,
+        )
+
+        if resp.status_code != 200:
+            logger.debug(f"  Apollo Enrich returned {resp.status_code}")
+            return None
+
+        data = resp.json()
+        person = data.get("person")
+        if not person:
+            return None
+
+        email = person.get("email")
+        phone = None
+        phone_numbers = person.get("phone_numbers") or []
+        if phone_numbers:
+            phone = phone_numbers[0].get("sanitized_number") or phone_numbers[0].get("number")
+
+        result = {}
+        if email:
+            result["email"] = email
+            result["email_status"] = person.get("email_status", "unknown")
+        if phone:
+            result["phone"] = phone
+
+        if result:
+            logger.info(f"  → Apollo enriched: email={'yes' if email else 'no'}, phone={'yes' if phone else 'no'} (1 credit used)")
+        return result if result else None
+
+    except Exception as e:
+        logger.debug(f"  Apollo enrich error: {e}")
+        return None
+
+
+def search_linkedin_ddg(company_name, title_guess):
+    """Fallback: Search DuckDuckGo for LinkedIn profile of decision maker."""
+    if not company_name or not title_guess:
+        return None
+
+    title = title_guess.strip()
+    if "/" in title:
+        title = title.split("/")[0].strip()
+
+    query = f'site:linkedin.com/in "{title}" "{company_name}"'
+
+    try:
+        resp = requests.post(
+            "https://html.duckduckgo.com/html/",
+            data={"q": query},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                "Referer": "https://duckduckgo.com/",
+            },
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return None
+
+        html = resp.text
+        import re
+        results = re.findall(
+            r'href="[^"]*?(https?://\w{0,3}\.?linkedin\.com/in/[^"&?]+)[^"]*"[^>]*>([^<]+)',
+            html
+        )
+
+        if not results:
+            results = re.findall(
+                r'(https?://\w{0,3}\.?linkedin\.com/in/[^\s"&?]+).*?<a[^>]*>([^<]+)',
+                html, re.DOTALL
+            )
+
+        if not results:
+            return None
+
+        for linkedin_url, raw_name in results[:5]:
+            linkedin_url = linkedin_url.split("&")[0].split("?")[0]
+            linkedin_url = re.sub(r'/+$', '', linkedin_url)
+
+            name = raw_name.strip()
+            name = re.sub(r'\s*[\|–—-]\s*LinkedIn.*$', '', name, flags=re.IGNORECASE)
+            parts = re.split(r'\s*[\|–—-]\s*', name)
+            name = parts[0].strip() if parts else name
+
+            if len(name) < 3 or len(name) > 60 or "/" in name or "linkedin" in name.lower():
+                continue
+
+            detected_title = title_guess
+            if len(parts) > 1:
+                detected_title = parts[1].strip()[:100]
+
+            logger.info(f"  → DDG found: {name} ({detected_title}) — {linkedin_url}")
+            return {
+                "name": name,
+                "title": detected_title,
+                "linkedin_url": linkedin_url,
+                "source": "duckduckgo",
+            }
+
+        return None
+
+    except Exception as e:
+        logger.debug(f"  DDG search error: {e}")
+        return None
+
+
+def find_decision_makers(jobs):
+    """Find decision makers: Apollo for Hot (search + enrich), Apollo search for Warm, DDG fallback."""
+    candidates = [
+        j for j in jobs
+        if not (j.get("ai_analysis") or {}).get("is_agency")
+        and j["tier"] in ("HOT", "WARM")
+    ]
+
+    seen_companies = set()
+    search_queue = []
+    for j in candidates:
+        c = j["company"].lower().strip()
+        if c not in seen_companies:
+            seen_companies.add(c)
+            search_queue.append(j)
+
+    if not search_queue:
+        return
+
+    hot_queue = [j for j in search_queue if j["tier"] == "HOT"]
+    warm_queue = [j for j in search_queue if j["tier"] == "WARM"]
+
+    apollo_on = bool(APOLLO_API_KEY)
+    logger.info(f"\n🔍 FINDING DECISION MAKERS for {len(search_queue)} companies "
+                f"(Apollo: {'ON' if apollo_on else 'OFF'} | {len(hot_queue)} hot, {len(warm_queue)} warm)")
+
+    found = 0
+    credits_used = 0
+
+    for job in search_queue:
+        ai = job.get("ai_analysis") or {}
+        enr = job.get("enrichment") or {}
+        title_guess = ai.get("decision_maker_guess") or enr.get("decision_maker_title") or "CEO"
+        company_domain = enr.get("company_website", "").replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0] or None
+        is_hot = job["tier"] == "HOT"
+
+        logger.info(f"  Searching: {title_guess} at {job['company']}" + (" [HOT → will enrich]" if is_hot and apollo_on else ""))
+
+        dm = None
+
+        # ── Step 1: Apollo People Search (free) ──
+        if apollo_on:
+            dm = search_apollo(job["company"], title_guess, company_domain)
+
+            # Retry with "CEO" if original title missed
+            if not dm and title_guess.lower() != "ceo":
+                dm = search_apollo(job["company"], "CEO", company_domain)
+
+        # ── Step 2: DuckDuckGo fallback ──
+        if not dm:
+            dm = search_linkedin_ddg(job["company"], title_guess)
+            if not dm and title_guess.lower() != "ceo":
+                dm = search_linkedin_ddg(job["company"], "CEO")
+
+        if not dm:
+            time.sleep(1)
+            continue
+
+        # ── Step 3: Apollo Enrichment for Hot leads (costs 1 credit) ──
+        if is_hot and apollo_on:
+            enrichment = enrich_apollo(
+                apollo_id=dm.get("apollo_id"),
+                name=dm.get("name"),
+                domain=company_domain,
+            )
+            if enrichment:
+                dm["email"] = enrichment.get("email")
+                dm["email_status"] = enrichment.get("email_status")
+                dm["phone"] = enrichment.get("phone")
+                credits_used += 1
+
+        # ── Apply to all jobs from same company ──
+        job["decision_maker"] = dm
+        for j2 in jobs:
+            if j2["company"].lower().strip() == job["company"].lower().strip():
+                j2["decision_maker"] = dm
+        found += 1
+
+        time.sleep(1.5 if apollo_on else 2)
+
+    logger.info(f"Decision makers: {found}/{len(search_queue)} found | Apollo credits used: {credits_used}")
+
+
+# ═══════════════════════════════════════════════════════════
 # SUPABASE WRITER
 # ═══════════════════════════════════════════════════════════
 def supabase_request(method, table, data=None, params=None, upsert=False):
@@ -984,6 +1275,40 @@ def write_to_supabase(jobs):
         if result:
             roles_created += 1
 
+        # ── Step 3: Upsert Decision Maker Contact ──────────────
+        dm = job.get("decision_maker")
+        if dm and company_id:
+            # Check if contact already exists (by linkedin_url)
+            existing_contact = supabase_request("GET", "contact", params={
+                "linkedin_url": f"eq.{dm['linkedin_url']}",
+                "select": "id",
+                "limit": "1",
+            })
+
+            if not (existing_contact and len(existing_contact) > 0):
+                contact_data = {
+                    "name": dm["name"],
+                    "title": dm.get("title", ""),
+                    "linkedin_url": dm["linkedin_url"],
+                    "email": dm.get("email"),
+                    "email_status": dm.get("email_status"),
+                    "phone": dm.get("phone"),
+                    "source": dm.get("source", "apollo_search"),
+                }
+                # Remove None values
+                contact_data = {k: v for k, v in contact_data.items() if v is not None}
+
+                contact_result = supabase_request("POST", "contact", data=contact_data)
+                if contact_result and len(contact_result) > 0:
+                    contact_id = contact_result[0]["id"]
+                    # Link contact to company
+                    supabase_request("POST", "company_contact", data={
+                        "company_id": company_id,
+                        "contact_id": contact_id,
+                        "role_at_company": dm.get("title", ""),
+                        "is_decision_maker": True,
+                    })
+
     logger.info(f"  Supabase: {companies_created} new companies, {companies_updated} updated, {roles_created} roles created, {roles_skipped} roles skipped (dupes)")
     return True
 
@@ -1018,7 +1343,8 @@ def write_to_sheets(jobs):
     header = [
         "Score", "Company", "Role", "Location", "Source", "Signals",
         "Agency?", "Requirements", "Engagement Type", "Reasoning",
-        "Decision Maker", "Company Stage",
+        "DM Guess", "DM Name", "DM LinkedIn", "DM Email", "DM Phone",
+        "Company Stage",
         "Industry", "Funding", "Headcount", "Investors", "Hiring Signal",
         "Arteq Fit", "Company Website",
         "URL", "Posted", "Scraped"
@@ -1058,7 +1384,7 @@ def write_to_sheets(jobs):
                 elif existing[0][0] != "Score":
                     ws.insert_row(header, 1)
                 try:
-                    ws.format('A1:V1', {'textFormat': {'bold': True}})
+                    ws.format('A1:Z1', {'textFormat': {'bold': True}})
                 except Exception:
                     pass
 
@@ -1070,6 +1396,7 @@ def write_to_sheets(jobs):
 
                 ai = job.get("ai_analysis") or {}
                 enr = job.get("enrichment") or {}
+                dm = job.get("decision_maker") or {}
                 agency_label = f"⚠️ AGENCY: {ai.get('agency_reason', '')[:40]}" if ai.get("is_agency") else ("✅ Direct" if ai else "")
 
                 row = [
@@ -1080,6 +1407,10 @@ def write_to_sheets(jobs):
                     ai.get("engagement_type", ""),
                     ai.get("engagement_reasoning", ""),
                     ai.get("decision_maker_guess", "") or enr.get("decision_maker_title", ""),
+                    dm.get("name", ""),
+                    dm.get("linkedin_url", ""),
+                    dm.get("email", ""),
+                    dm.get("phone", ""),
                     ai.get("company_stage_guess", "") or enr.get("funding_stage", ""),
                     enr.get("industry", ""),
                     enr.get("funding_amount", "") or enr.get("funding_stage", ""),
@@ -1118,6 +1449,7 @@ def main():
     print(f"  Sources: JSearch{'✓' if API_KEY else '✗'} | Arbeitnow ✓ | Jobicy ✓ | RemoteOK ✓")
     print(f"  AI Scoring: {'ON ✓' if use_ai else 'OFF'}")
     print(f"  Supabase: {'ON ✓' if SUPABASE_URL else 'OFF'}")
+    print(f"  Apollo: {'ON ✓ (Hot=enrich, Warm=search)' if APOLLO_API_KEY else 'OFF → DDG fallback'}")
     print(f"  Google Sheets: {'ON ✓' if os.path.exists(CREDENTIALS_FILE) else 'OFF'}")
     print("=" * 95)
 
@@ -1237,6 +1569,9 @@ def main():
                 time.sleep(0.5)
             logger.info(f"Enrichment done: {sum(1 for j in enrich_queue if j.get('enrichment'))} companies enriched")
 
+    # ── Decision Maker Finder ────────────────────────────────
+    find_decision_makers(unique)
+
     # ── Display ─────────────────────────────────────────────
     real_leads = [j for j in unique if not (j.get("ai_analysis") or {}).get("is_agency")]
     agencies = [j for j in unique if (j.get("ai_analysis") or {}).get("is_agency")]
@@ -1292,6 +1627,18 @@ def main():
 
         if job.get("url"):
             print(f"  {'':24}  🔗 {job['url'][:85]}")
+
+        dm = job.get("decision_maker")
+        if dm:
+            dm_line = f"  {'':24}  👤 {dm['name']} ({dm['title']})"
+            if dm.get("email"):
+                dm_line += f" ✉ {dm['email']}"
+            if dm.get("phone"):
+                dm_line += f" ☎ {dm['phone']}"
+            dm_line += f" — {dm.get('linkedin_url', '')[:60]}"
+            dm_line += f" [{dm.get('source', '?')}]"
+            print(dm_line)
+
         print()
 
     if agencies:
@@ -1325,7 +1672,8 @@ def main():
             "Tier", "Score", "Source", "Company", "Role", "Location", "Signals",
             "Agency?", "Agency Reason",
             "Requirements", "Engagement Type", "Reasoning",
-            "Decision Maker", "Stage",
+            "DM Title Guess", "DM Name", "DM LinkedIn", "DM Email", "DM Phone",
+            "Stage",
             "Industry", "Funding", "Headcount", "Investors",
             "Hiring Signal", "Arteq Fit", "Company Website",
             "URL", "Posted",
@@ -1333,6 +1681,7 @@ def main():
         for job in unique:
             ai = job.get("ai_analysis") or {}
             enr = job.get("enrichment") or {}
+            dm = job.get("decision_maker") or {}
             w.writerow([
                 job["tier"], job["score"], job.get("source", ""),
                 job["company"], job["title"], job["location"],
@@ -1342,6 +1691,10 @@ def main():
                 ai.get("requirements_summary", ""),
                 ai.get("engagement_type", ""), ai.get("engagement_reasoning", ""),
                 ai.get("decision_maker_guess", "") or enr.get("decision_maker_title", ""),
+                dm.get("name", ""),
+                dm.get("linkedin_url", ""),
+                dm.get("email", ""),
+                dm.get("phone", ""),
                 ai.get("company_stage_guess", "") or enr.get("funding_stage", ""),
                 enr.get("industry", ""), enr.get("funding_amount", ""),
                 enr.get("headcount_estimate", ""), enr.get("investors", ""),
