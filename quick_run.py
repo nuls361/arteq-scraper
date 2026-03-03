@@ -936,20 +936,20 @@ REGELN:
 APOLLO_API_KEY = os.getenv("APOLLO_API_KEY", "")
 
 
-def search_apollo(company_name, title_guess, company_domain=None):
+def search_apollo(company_name, titles, company_domain=None):
     """Search Apollo People API (FREE — no credits consumed) for decision maker."""
     if not APOLLO_API_KEY or not company_name:
         return None
 
-    # Normalize title for Apollo search
-    title = title_guess.strip()
-    if "/" in title:
-        title = title.split("/")[0].strip()
+    # Accept string or list
+    if isinstance(titles, str):
+        titles = [titles]
+    titles = [t.strip() for t in titles if t.strip()]
 
     try:
         # Apollo People Search — free, no credits
         payload = {
-            "person_titles": [title],
+            "person_titles": titles,
             "q_organization_name": company_name,
             "page": 1,
             "per_page": 3,
@@ -983,7 +983,7 @@ def search_apollo(company_name, title_guess, company_domain=None):
         person = people[0]
         name = person.get("name", "")
         linkedin = person.get("linkedin_url", "")
-        found_title = person.get("title", title_guess)
+        found_title = person.get("title", titles[0] if titles else "Unknown")
         apollo_id = person.get("id", "")
 
         if not name or len(name) < 2:
@@ -1138,6 +1138,48 @@ def search_linkedin_ddg(company_name, title_guess):
         return None
 
 
+def guess_dm_titles(job):
+    """Intelligently guess who hires for this role based on role type + company context."""
+    title = (job.get("title") or "").lower()
+    ai = job.get("ai_analysis") or {}
+    enr = job.get("enrichment") or {}
+    headcount = (enr.get("headcount_estimate") or ai.get("company_stage_guess") or "").lower()
+
+    is_small = any(k in headcount for k in ["seed", "startup", "1-10", "10-20", "11-50", "small"])
+
+    # For small companies / startups → CEO/Founder is almost always the DM
+    if is_small:
+        return ["CEO", "Founder", "Geschäftsführer", "Managing Director"]
+
+    # CFO / Finance roles → CEO or COO hires
+    if any(k in title for k in ["cfo", "chief financial", "vp finance", "head of finance", "finance director"]):
+        return ["CEO", "Geschäftsführer", "COO", "Managing Director"]
+
+    # CTO / Tech roles → CEO hires
+    if any(k in title for k in ["cto", "chief technology", "vp engineering", "head of engineering"]):
+        return ["CEO", "Geschäftsführer", "COO", "Founder"]
+
+    # COO / Operations → CEO hires
+    if any(k in title for k in ["coo", "chief operating", "head of operations", "vp operations"]):
+        return ["CEO", "Geschäftsführer", "Founder", "Managing Director"]
+
+    # HR / People roles → CEO or COO hires
+    if any(k in title for k in ["chro", "head of people", "vp people", "head of hr", "hr director"]):
+        return ["CEO", "COO", "Geschäftsführer", "Managing Director"]
+
+    # Geschäftsführer / MD → Board, Investor, Chairman
+    if any(k in title for k in ["geschäftsführer", "managing director", "general manager"]):
+        return ["Vorstand", "Chairman", "Board Member", "Investor"]
+
+    # Fallback: use AI guess + CEO
+    ai_guess = ai.get("decision_maker_guess", "")
+    titles = [ai_guess] if ai_guess else []
+    for fallback in ["CEO", "Geschäftsführer", "Managing Director"]:
+        if fallback.lower() != ai_guess.lower():
+            titles.append(fallback)
+    return titles[:4]
+
+
 def find_decision_makers(jobs):
     """Find decision makers: Apollo for Hot (search + enrich), Apollo search for Warm, DDG fallback."""
     candidates = [
@@ -1168,29 +1210,25 @@ def find_decision_makers(jobs):
     credits_used = 0
 
     for job in search_queue:
-        ai = job.get("ai_analysis") or {}
         enr = job.get("enrichment") or {}
-        title_guess = ai.get("decision_maker_guess") or enr.get("decision_maker_title") or "CEO"
+        dm_titles = guess_dm_titles(job)
         company_domain = enr.get("company_website", "").replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0] or None
         is_hot = job["tier"] == "HOT"
 
-        logger.info(f"  Searching: {title_guess} at {job['company']}" + (" [HOT → will enrich]" if is_hot and apollo_on else ""))
+        logger.info(f"  Searching: {dm_titles} at {job['company']}" + (" [HOT → will enrich]" if is_hot and apollo_on else ""))
 
         dm = None
 
-        # ── Step 1: Apollo People Search (free) ──
+        # ── Step 1: Apollo People Search (free) — all titles at once ──
         if apollo_on:
-            dm = search_apollo(job["company"], title_guess, company_domain)
+            dm = search_apollo(job["company"], dm_titles, company_domain)
 
-            # Retry with "CEO" if original title missed
-            if not dm and title_guess.lower() != "ceo":
-                dm = search_apollo(job["company"], "CEO", company_domain)
-
-        # ── Step 2: DuckDuckGo fallback ──
+        # ── Step 2: DuckDuckGo fallback — try first two titles ──
         if not dm:
-            dm = search_linkedin_ddg(job["company"], title_guess)
-            if not dm and title_guess.lower() != "ceo":
-                dm = search_linkedin_ddg(job["company"], "CEO")
+            for t in dm_titles[:2]:
+                dm = search_linkedin_ddg(job["company"], t)
+                if dm:
+                    break
 
         if not dm:
             time.sleep(1)
