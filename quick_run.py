@@ -1395,8 +1395,14 @@ def write_to_supabase(jobs):
 
             else:
                 # Create new company
-                website = enr.get("company_website") or job.get("url", "")
+                website = enr.get("company_website") or ""
+                # Only extract domain from actual company websites, not job board URLs
+                job_board_domains = {"arbeitnow.com", "remoteok.com", "jobicy.com", "indeed.com",
+                                     "glassdoor.com", "linkedin.com", "welcometothejungle.com",
+                                     "google.com", "jsearch.p.rapidapi.com"}
                 domain = extract_domain(website)
+                if domain and any(jb in domain for jb in job_board_domains):
+                    domain = None
 
                 company_data = {
                     "name": company_name,
