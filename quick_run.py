@@ -495,6 +495,36 @@ def rule_score(title, description, location, is_remote):
     return score, signals
 
 
+def clean_json_response(text):
+    """Strip markdown fences, preamble, and trailing junk from Claude JSON responses."""
+    t = text.strip()
+    # Remove ```json ... ``` blocks
+    if "```json" in t:
+        t = t.split("```json", 1)[1]
+        if "```" in t:
+            t = t.rsplit("```", 1)[0]
+    elif "```" in t:
+        t = t.split("```", 1)[1]
+        if "```" in t:
+            t = t.rsplit("```", 1)[0]
+    t = t.strip()
+    # If still not starting with {, find first {
+    if t and t[0] != '{':
+        idx = t.find('{')
+        if idx >= 0:
+            t = t[idx:]
+    # Find matching closing brace
+    if t and t[0] == '{':
+        depth = 0
+        for i, c in enumerate(t):
+            if c == '{': depth += 1
+            elif c == '}': depth -= 1
+            if depth == 0:
+                t = t[:i+1]
+                break
+    return t
+
+
 def claude_analyze(job):
     """Claude AI analysis with agency detection."""
     if not ANTHROPIC_KEY:
@@ -559,7 +589,7 @@ SCORING-REGELN:
         if not text.strip():
             return None
 
-        analysis = json.loads(text.strip())
+        analysis = json.loads(clean_json_response(text))
 
         if analysis.get("is_agency"):
             analysis["lead_score"] = min(analysis.get("lead_score", 0), 10)
@@ -735,7 +765,7 @@ REGELN:
         if not text.strip():
             return None
 
-        enrichment = json.loads(text.strip())
+        enrichment = json.loads(clean_json_response(text))
         logger.info(f"  ✅ {company}: {enrichment.get('industry', '?')} | {enrichment.get('funding_stage', '?')} | ~{enrichment.get('headcount_estimate', '?')} ppl | fit={enrichment.get('arteq_fit', '?')}")
         return enrichment
 
@@ -944,7 +974,7 @@ def main():
 
     # ── AI Analysis ─────────────────────────────────────────
     if use_ai:
-        ai_candidates = [j for j in unique if j["score"] >= 20]
+        ai_candidates = [j for j in unique if j["score"] >= 30]
         logger.info(f"\nRunning Claude analysis on {len(ai_candidates)} leads...")
         ai_count = 0
         agency_count = 0
