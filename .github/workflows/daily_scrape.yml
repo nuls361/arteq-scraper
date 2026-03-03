@@ -2,7 +2,6 @@ name: Arteq Daily Scrape
 
 on:
   schedule:
-    # 06:00 UTC = 07:00 CET / 14:00 SGT
     - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
@@ -14,7 +13,7 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -26,7 +25,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 gspread google-auth
+        run: pip install requests beautifulsoup4 gspread google-auth python-jobspy
 
       - name: Write Google credentials
         run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > credentials.json
@@ -37,6 +36,8 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          APOLLO_API_KEY: ${{ secrets.APOLLO_API_KEY }}
+          JOBSPY_PROXY: ${{ secrets.JOBSPY_PROXY }}
         run: python quick_run.py
 
       - name: Upload CSV backup
@@ -45,4 +46,3 @@ jobs:
           name: leads-${{ github.run_number }}
           path: leads_*.csv
           retention-days: 30
-          
