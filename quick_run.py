@@ -1456,6 +1456,7 @@ def write_to_supabase(jobs):
             "decision_maker_guess": ai.get("decision_maker_guess") or enr.get("decision_maker_title"),
             "company_stage_guess": ai.get("company_stage_guess") or enr.get("funding_stage"),
             "status": "new",
+            "first_seen_at": job.get("first_seen") or datetime.now().strftime("%Y-%m-%d"),
         }
         # Remove None values
         role_data = {k: v for k, v in role_data.items() if v is not None}
@@ -1531,15 +1532,17 @@ def write_to_sheets(jobs):
 
     header = [
         "Score", "Company", "Role", "Location", "Source", "Signals",
+        "Urgency", "Days Open",
         "Agency?", "Requirements", "Engagement Type", "Reasoning",
         "DM Guess", "DM Name", "DM LinkedIn", "DM Email", "DM Phone",
         "Company Stage",
         "Industry", "Funding", "Headcount", "Investors", "Hiring Signal",
         "Arteq Fit", "Company Website",
-        "URL", "Posted", "Scraped"
+        "URL", "Posted", "First Seen", "Scraped"
     ]
 
     scraped_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+    today_str = datetime.now().strftime("%Y-%m-%d")
 
     tiers = {"Hot": [], "Warm": [], "Parked": []}
     for job in jobs:
@@ -1563,7 +1566,7 @@ def write_to_sheets(jobs):
             if len(existing) > 1:
                 for row in existing[1:]:
                     if len(row) >= 3:
-                        key = f"{row[1].lower().strip()}_{row[2].lower().strip()[:30]}"
+                        key = f"{row[1].lower().strip()}_{row[2].lower().strip()[:40]}"
                         existing_keys.add(key)
 
             # Always ensure header
@@ -1573,13 +1576,13 @@ def write_to_sheets(jobs):
                 elif existing[0][0] != "Score":
                     ws.insert_row(header, 1)
                 try:
-                    ws.format('A1:Z1', {'textFormat': {'bold': True}})
+                    ws.format('A1:AB1', {'textFormat': {'bold': True}})
                 except Exception:
                     pass
 
             new_rows = []
             for job in tab_jobs:
-                key = f"{job['company'].lower().strip()}_{job['title'].lower().strip()[:30]}"
+                key = f"{job['company'].lower().strip()}_{job['title'].lower().strip()[:40]}"
                 if key in existing_keys:
                     continue
 
@@ -1591,6 +1594,7 @@ def write_to_sheets(jobs):
                 row = [
                     job["score"], job["company"], job["title"], job["location"],
                     job.get("source", ""), "; ".join(job.get("signals", [])),
+                    job.get("urgency", "🆕 new"), job.get("days_open", 0),
                     agency_label,
                     ai.get("requirements_summary", ""),
                     ai.get("engagement_type", ""),
@@ -1609,6 +1613,7 @@ def write_to_sheets(jobs):
                     enr.get("arteq_fit", "") + (f": {enr.get('arteq_fit_reason', '')}" if enr.get("arteq_fit_reason") else ""),
                     enr.get("company_website", ""),
                     job.get("url", ""), job.get("posted", ""),
+                    job.get("first_seen", today_str),
                     scraped_date,
                 ]
                 new_rows.append(row)
@@ -1634,7 +1639,7 @@ def main():
     use_ai = bool(ANTHROPIC_KEY)
 
     print("\n" + "=" * 95)
-    print("  ARTEQ JOB SIGNAL SCRAPER v9 — Multi-Source Pipeline")
+    print("  ARTEQ JOB SIGNAL SCRAPER v10 — Multi-Source Pipeline + Urgency Tracking")
     print(f"  Sources: JSearch{'✓' if API_KEY else '✗'} | Arbeitnow ✓ | Jobicy ✓ | RemoteOK ✓ | JobSpy{'(+proxy)' if JOBSPY_PROXY else ' ✓'}")
     print(f"  AI Scoring: {'ON ✓' if use_ai else 'OFF'}")
     print(f"  Supabase: {'ON ✓' if SUPABASE_URL else 'OFF'}")
@@ -1687,14 +1692,85 @@ def main():
         print("\n  No results from any source.\n")
         return
 
-    # ── Dedup across sources ────────────────────────────────
+    # ── Smart Dedup across sources ─────────────────────────
+    def normalize_company(name):
+        """Normalize company name for dedup: strip legal suffixes, extra whitespace."""
+        n = name.lower().strip()
+        # Strip common legal suffixes
+        for suffix in [" gmbh", " ag", " se", " ug", " inc", " ltd", " co", " corp",
+                       " sarl", " bv", " srl", " e.v.", " mbh", " ohg", " kg",
+                       " gmbh & co. kg", " gmbh & co kg", " & co. kg", " & co kg"]:
+            if n.endswith(suffix):
+                n = n[:-len(suffix)].strip()
+        # Strip punctuation and extra spaces
+        n = re.sub(r'[^\w\s]', '', n)
+        n = re.sub(r'\s+', ' ', n).strip()
+        return n
+
+    def normalize_title(title):
+        """Normalize title for dedup: strip gender markers, (m/f/d), etc."""
+        t = title.lower().strip()
+        # Strip gender markers
+        t = re.sub(r'\s*\(m/[wf]/d\)\s*', ' ', t)
+        t = re.sub(r'\s*\(all genders?\)\s*', ' ', t)
+        t = re.sub(r'\s*\(w/m/d\)\s*', ' ', t)
+        t = re.sub(r'\s*\(f/m/d\)\s*', ' ', t)
+        t = re.sub(r'\s*\(d/f/m\)\s*', ' ', t)
+        t = re.sub(r'\s+', ' ', t).strip()
+        return t[:40]
+
     seen = set()
     unique = []
     for job in all_raw:
-        key = f"{job['company'].lower().strip()}_{job['title'].lower().strip()[:30]}"
+        key = f"{normalize_company(job['company'])}_{normalize_title(job['title'])}"
         if key not in seen:
             seen.add(key)
             unique.append(job)
+
+    dupes_removed = len(all_raw) - len(unique)
+    logger.info(f"After smart dedup: {len(unique)} unique jobs ({dupes_removed} duplicates removed)")
+
+    # ── Urgency Check: compare with Supabase existing roles ──
+    existing_roles = {}
+    if SUPABASE_URL and SUPABASE_KEY:
+        try:
+            roles_data = supabase_request("GET", "role", params={
+                "select": "id,title,first_seen_at,company:company_id(name)",
+                "status": "eq.open",
+                "limit": "1000",
+            })
+            if roles_data:
+                for r in roles_data:
+                    company_name = (r.get("company") or {}).get("name", "")
+                    rkey = f"{normalize_company(company_name)}_{normalize_title(r.get('title', ''))}"
+                    existing_roles[rkey] = r.get("first_seen_at", "")
+                logger.info(f"Urgency: loaded {len(existing_roles)} existing open roles from Supabase")
+        except Exception as e:
+            logger.warning(f"Urgency check failed: {e}")
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    for job in unique:
+        jkey = f"{normalize_company(job['company'])}_{normalize_title(job['title'])}"
+        first_seen = existing_roles.get(jkey, "")
+        if first_seen:
+            try:
+                days_open = (datetime.now() - datetime.strptime(first_seen[:10], "%Y-%m-%d")).days
+                job["days_open"] = days_open
+                job["first_seen"] = first_seen[:10]
+                if days_open >= 30:
+                    job["urgency"] = "🔴 stale"
+                elif days_open >= 14:
+                    job["urgency"] = "🟡 aging"
+                else:
+                    job["urgency"] = "🟢 fresh"
+            except Exception:
+                job["days_open"] = 0
+                job["first_seen"] = today
+                job["urgency"] = "🆕 new"
+        else:
+            job["days_open"] = 0
+            job["first_seen"] = today
+            job["urgency"] = "🆕 new"
 
     logger.info(f"After cross-source dedup: {len(unique)} unique jobs")
 
@@ -1795,6 +1871,11 @@ def main():
 
     print(f"\n  📊 Source breakdown: {' | '.join(f'{k}: {v}' for k, v in sources.items())}")
     print(f"  📊 Total: {len(unique)} unique | ✅ {len(real_leads)} direct | ⚠️ {len(agencies)} agencies")
+    new_count = sum(1 for j in unique if j.get("urgency", "").startswith("🆕"))
+    fresh_count = sum(1 for j in unique if j.get("urgency", "").startswith("🟢"))
+    aging_count = sum(1 for j in unique if j.get("urgency", "").startswith("🟡"))
+    stale_count = sum(1 for j in unique if j.get("urgency", "").startswith("🔴"))
+    print(f"  ⏱️ Urgency: {new_count} new | {fresh_count} fresh | {aging_count} aging (14d+) | {stale_count} stale (30d+)")
 
     hot_count = len([j for j in real_leads if j["tier"] == "HOT"])
     warm_count = len([j for j in real_leads if j["tier"] == "WARM"])
@@ -1881,6 +1962,7 @@ def main():
         w = csv.writer(f)
         w.writerow([
             "Tier", "Score", "Source", "Company", "Role", "Location", "Signals",
+            "Urgency", "Days Open", "First Seen",
             "Agency?", "Agency Reason",
             "Requirements", "Engagement Type", "Reasoning",
             "DM Title Guess", "DM Name", "DM LinkedIn", "DM Email", "DM Phone",
@@ -1897,6 +1979,7 @@ def main():
                 job["tier"], job["score"], job.get("source", ""),
                 job["company"], job["title"], job["location"],
                 "; ".join(job.get("signals", [])),
+                job.get("urgency", "🆕 new"), job.get("days_open", 0), job.get("first_seen", ""),
                 "AGENCY" if ai.get("is_agency") else "Direct" if ai else "",
                 ai.get("agency_reason", ""),
                 ai.get("requirements_summary", ""),
