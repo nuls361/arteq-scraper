@@ -23,9 +23,6 @@ ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
-# ── Google Sheets Config ────────────────────────────────────
-SHEET_ID = "1gI7MQd9nn6l14f3Pm4_Weftbv_BTVQIFN65s5c7GZbc"
-CREDENTIALS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.json")
 
 # ── Static blacklists ───────────────────────────────────────
 EXCLUDED_COMPANIES = [
@@ -1532,133 +1529,6 @@ def write_to_supabase(jobs):
 
 
 # ═══════════════════════════════════════════════════════════
-# GOOGLE SHEETS WRITER
-# ═══════════════════════════════════════════════════════════
-def write_to_sheets(jobs):
-    """Write jobs to Google Sheets, sorted into Hot/Warm/Parked tabs."""
-    try:
-        import gspread
-        from google.oauth2.service_account import Credentials
-    except ImportError:
-        logger.error("gspread not installed. Run: pip install gspread google-auth")
-        return False
-
-    if not os.path.exists(CREDENTIALS_FILE):
-        logger.error(f"Credentials not found: {CREDENTIALS_FILE}")
-        return False
-
-    try:
-        scopes = ["https://www.googleapis.com/auth/spreadsheets",
-                   "https://www.googleapis.com/auth/drive"]
-        creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes)
-        gc = gspread.authorize(creds)
-        sheet = gc.open_by_key(SHEET_ID)
-        logger.info("Google Sheets connected ✓")
-    except Exception as e:
-        logger.error(f"Sheets connection failed: {e}")
-        return False
-
-    header = [
-        "Score", "Company", "Role", "Location", "Source", "Signals",
-        "Urgency", "Days Open",
-        "Agency?", "Requirements", "Engagement Type", "Reasoning",
-        "DM Guess", "DM Name", "DM LinkedIn", "DM Email", "DM Phone",
-        "Company Stage",
-        "Industry", "Funding", "Headcount", "Investors", "Hiring Signal",
-        "Arteq Fit", "Company Website",
-        "URL", "Posted", "First Seen", "Scraped"
-    ]
-
-    scraped_date = datetime.now().strftime("%Y-%m-%d %H:%M")
-    today_str = datetime.now().strftime("%Y-%m-%d")
-
-    tiers = {"Hot": [], "Warm": [], "Parked": []}
-    for job in jobs:
-        tier = job.get("tier", "Park")
-        if tier == "HOT":
-            tiers["Hot"].append(job)
-        elif tier == "WARM":
-            tiers["Warm"].append(job)
-        else:
-            tiers["Parked"].append(job)
-
-    for tab_name, tab_jobs in tiers.items():
-        try:
-            try:
-                ws = sheet.worksheet(tab_name)
-            except Exception:
-                ws = sheet.add_worksheet(title=tab_name, rows=500, cols=25)
-
-            existing = ws.get_all_values()
-            existing_keys = set()
-            if len(existing) > 1:
-                for row in existing[1:]:
-                    if len(row) >= 3:
-                        key = f"{row[1].lower().strip()}_{row[2].lower().strip()[:40]}"
-                        existing_keys.add(key)
-
-            # Always ensure header
-            if not existing or existing[0] != header:
-                if not existing:
-                    ws.update('A1', [header])
-                elif existing[0][0] != "Score":
-                    ws.insert_row(header, 1)
-                try:
-                    ws.format('A1:AB1', {'textFormat': {'bold': True}})
-                except Exception:
-                    pass
-
-            new_rows = []
-            for job in tab_jobs:
-                key = f"{job['company'].lower().strip()}_{job['title'].lower().strip()[:40]}"
-                if key in existing_keys:
-                    continue
-
-                ai = job.get("ai_analysis") or {}
-                enr = job.get("enrichment") or {}
-                dm = job.get("decision_maker") or {}
-                agency_label = f"⚠️ AGENCY: {ai.get('agency_reason', '')[:40]}" if ai.get("is_agency") else ("✅ Direct" if ai else "")
-
-                row = [
-                    job["score"], job["company"], job["title"], job["location"],
-                    job.get("source", ""), "; ".join(job.get("signals", [])),
-                    job.get("urgency", "🆕 new"), job.get("days_open", 0),
-                    agency_label,
-                    ai.get("requirements_summary", ""),
-                    ai.get("engagement_type", ""),
-                    ai.get("engagement_reasoning", ""),
-                    ai.get("decision_maker_guess", "") or enr.get("decision_maker_title", ""),
-                    dm.get("name", ""),
-                    dm.get("linkedin_url", ""),
-                    dm.get("email", ""),
-                    dm.get("phone", ""),
-                    ai.get("company_stage_guess", "") or enr.get("funding_stage", ""),
-                    enr.get("industry", ""),
-                    enr.get("funding_amount", "") or enr.get("funding_stage", ""),
-                    enr.get("headcount_estimate", ""),
-                    enr.get("investors", ""),
-                    enr.get("hiring_signal", ""),
-                    enr.get("arteq_fit", "") + (f": {enr.get('arteq_fit_reason', '')}" if enr.get("arteq_fit_reason") else ""),
-                    enr.get("company_website", ""),
-                    job.get("url", ""), job.get("posted", ""),
-                    job.get("first_seen", today_str),
-                    scraped_date,
-                ]
-                new_rows.append(row)
-
-            if new_rows:
-                existing_after = ws.get_all_values()
-                start_row = len(existing_after) + 1
-                ws.update(f'A{start_row}', new_rows)
-                logger.info(f"  {tab_name}: +{len(new_rows)} new leads")
-            else:
-                logger.info(f"  {tab_name}: No new leads (all duplicates)")
-
-        except Exception as e:
-            logger.error(f"  Error writing {tab_name}: {e}")
-
-    return True
-
 
 # ═══════════════════════════════════════════════════════════
 # MAIN PIPELINE
@@ -1672,7 +1542,6 @@ def main():
     print(f"  AI Scoring: {'ON ✓' if use_ai else 'OFF'}")
     print(f"  Supabase: {'ON ✓' if SUPABASE_URL else 'OFF'}")
     print(f"  Apollo: {'ON ✓ (Hot=enrich, Warm=search)' if APOLLO_API_KEY else 'OFF → DDG fallback'}")
-    print(f"  Google Sheets: {'ON ✓' if os.path.exists(CREDENTIALS_FILE) else 'OFF'}")
     print("=" * 95)
 
     # ── Test Claude ─────────────────────────────────────────
@@ -1974,14 +1843,6 @@ def main():
         print(f"  🗄️  Supabase: https://supabase.com/dashboard")
     else:
         logger.info("No Supabase credentials — skipping")
-
-    # ── Google Sheets ───────────────────────────────────────
-    if os.path.exists(CREDENTIALS_FILE):
-        logger.info("Writing to Google Sheets...")
-        if write_to_sheets(unique):
-            print(f"\n  📊 Sheet: https://docs.google.com/spreadsheets/d/{SHEET_ID}")
-    else:
-        logger.info("No credentials.json — skipping Sheets")
 
     # ── CSV backup ──────────────────────────────────────────
     filename = f"leads_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
