@@ -20,6 +20,8 @@ logger = logging.getLogger("arteq")
 
 API_KEY = os.getenv("JSEARCH_API_KEY", "")
 ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
 # ── Google Sheets Config ────────────────────────────────────
 SHEET_ID = "1gI7MQd9nn6l14f3Pm4_Weftbv_BTVQIFN65s5c7GZbc"
@@ -778,6 +780,215 @@ REGELN:
 
 
 # ═══════════════════════════════════════════════════════════
+# SUPABASE WRITER
+# ═══════════════════════════════════════════════════════════
+def supabase_request(method, table, data=None, params=None, upsert=False):
+    """Make a request to Supabase REST API."""
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
+    if upsert:
+        headers["Prefer"] = "resolution=merge-duplicates,return=representation"
+
+    try:
+        if method == "GET":
+            resp = requests.get(url, headers=headers, params=params, timeout=15)
+        elif method == "POST":
+            resp = requests.post(url, headers=headers, json=data, timeout=15)
+        elif method == "PATCH":
+            resp = requests.patch(url, headers=headers, json=data, params=params, timeout=15)
+        else:
+            return None
+
+        if resp.status_code in (200, 201):
+            return resp.json()
+        else:
+            logger.error(f"  Supabase {method} {table}: {resp.status_code} — {resp.text[:200]}")
+            return None
+    except Exception as e:
+        logger.error(f"  Supabase error: {e}")
+        return None
+
+
+def extract_domain(url_str):
+    """Extract clean domain from URL."""
+    if not url_str:
+        return None
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url_str)
+        host = parsed.hostname or ""
+        return host.replace("www.", "").lower() or None
+    except Exception:
+        return None
+
+
+def write_to_supabase(jobs):
+    """Write jobs to Supabase — upsert companies + insert roles."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        logger.info("No Supabase credentials — skipping")
+        return False
+
+    logger.info("Writing to Supabase...")
+    companies_created = 0
+    companies_updated = 0
+    roles_created = 0
+    roles_skipped = 0
+
+    # Cache company lookups to avoid repeated API calls
+    company_cache = {}  # name_lower → company_id
+
+    for job in jobs:
+        company_name = job.get("company", "").strip()
+        if not company_name:
+            continue
+
+        name_lower = company_name.lower()
+        ai = job.get("ai_analysis") or {}
+        enr = job.get("enrichment") or {}
+
+        # ── Step 1: Upsert Company ──────────────────────────
+        company_id = company_cache.get(name_lower)
+
+        if not company_id:
+            # Check if company exists
+            existing = supabase_request("GET", "company", params={
+                "name": f"ilike.{company_name}",
+                "select": "id",
+                "limit": "1",
+            })
+
+            if existing and len(existing) > 0:
+                company_id = existing[0]["id"]
+                company_cache[name_lower] = company_id
+
+                # Update enrichment data if we have new info
+                if enr:
+                    update_data = {}
+                    if enr.get("industry") and enr.get("industry") != "unknown":
+                        update_data["industry"] = enr["industry"]
+                    if enr.get("company_description"):
+                        update_data["description"] = enr["company_description"]
+                    if enr.get("funding_stage") and enr.get("funding_stage") != "unknown":
+                        update_data["funding_stage"] = enr["funding_stage"]
+                    if enr.get("funding_amount") and enr.get("funding_amount") != "unknown":
+                        update_data["funding_amount"] = enr["funding_amount"]
+                    if enr.get("investors") and enr.get("investors") != "unknown":
+                        update_data["investors"] = enr["investors"]
+                    if enr.get("headcount_estimate") and enr.get("headcount_estimate") != "unknown":
+                        update_data["headcount"] = str(enr["headcount_estimate"])
+                    if enr.get("company_website"):
+                        update_data["website"] = enr["company_website"]
+                        update_data["domain"] = extract_domain(enr["company_website"])
+                    if enr.get("arteq_fit") and enr.get("arteq_fit") != "unknown":
+                        update_data["arteq_fit"] = enr["arteq_fit"]
+                    if enr.get("arteq_fit_reason"):
+                        update_data["arteq_fit_reason"] = enr["arteq_fit_reason"]
+                    if update_data:
+                        update_data["last_enriched_at"] = datetime.utcnow().isoformat()
+                        supabase_request("PATCH", "company", data=update_data,
+                                         params={"id": f"eq.{company_id}"})
+                        companies_updated += 1
+
+                # Update agency status
+                if ai.get("is_agency") and not existing[0].get("is_agency"):
+                    supabase_request("PATCH", "company", data={
+                        "is_agency": True,
+                        "agency_reason": ai.get("agency_reason", "")[:200],
+                    }, params={"id": f"eq.{company_id}"})
+
+            else:
+                # Create new company
+                website = enr.get("company_website") or job.get("url", "")
+                domain = extract_domain(website)
+
+                company_data = {
+                    "name": company_name,
+                    "domain": domain,
+                    "website": enr.get("company_website"),
+                    "industry": enr.get("industry") if enr.get("industry") != "unknown" else None,
+                    "description": enr.get("company_description"),
+                    "status": "lead",
+                    "source": "scraper",
+                    "source_detail": job.get("source", ""),
+                    "founded_year": int(enr["founded_year"]) if enr.get("founded_year", "unknown") not in ("unknown", "", None) else None,
+                    "headcount": str(enr["headcount_estimate"]) if enr.get("headcount_estimate") else None,
+                    "funding_stage": enr.get("funding_stage") if enr.get("funding_stage") != "unknown" else "unknown",
+                    "funding_amount": enr.get("funding_amount") if enr.get("funding_amount") != "unknown" else None,
+                    "investors": enr.get("investors") if enr.get("investors") != "unknown" else None,
+                    "hq_city": job.get("location", "").split(",")[0].strip() if job.get("location") else None,
+                    "arteq_fit": enr.get("arteq_fit") if enr.get("arteq_fit") in ("high", "medium", "low") else "unknown",
+                    "arteq_fit_reason": enr.get("arteq_fit_reason"),
+                    "is_agency": ai.get("is_agency", False),
+                    "agency_reason": ai.get("agency_reason", "")[:200] if ai.get("is_agency") else None,
+                    "last_enriched_at": datetime.utcnow().isoformat() if enr else None,
+                }
+                # Remove None values to let DB defaults apply
+                company_data = {k: v for k, v in company_data.items() if v is not None}
+
+                result = supabase_request("POST", "company", data=company_data)
+                if result and len(result) > 0:
+                    company_id = result[0]["id"]
+                    company_cache[name_lower] = company_id
+                    companies_created += 1
+                else:
+                    continue
+
+        # ── Step 2: Insert Role ─────────────────────────────
+        # Check if role already exists (dedup by company + title + source)
+        existing_role = supabase_request("GET", "role", params={
+            "company_id": f"eq.{company_id}",
+            "title": f"eq.{job['title']}",
+            "source": f"eq.{job.get('source', 'manual')}",
+            "select": "id",
+            "limit": "1",
+        })
+
+        if existing_role and len(existing_role) > 0:
+            roles_skipped += 1
+            continue
+
+        tier = job.get("tier", "Park").lower()
+        if tier == "park":
+            tier = "parked"
+
+        role_data = {
+            "company_id": company_id,
+            "title": job["title"],
+            "description": (job.get("description") or "")[:10000],
+            "location": job.get("location"),
+            "is_remote": job.get("is_remote", False),
+            "url": job.get("url"),
+            "source": job.get("source", "manual"),
+            "posted_at": job.get("posted") if job.get("posted") else None,
+            "rule_score": job.get("score", 0),
+            "ai_score": ai.get("lead_score") if ai else None,
+            "final_score": ai.get("lead_score", job.get("score", 0)),
+            "tier": tier if tier in ("hot", "warm", "parked", "disqualified") else "parked",
+            "signals": job.get("signals", []),
+            "engagement_type": ai.get("engagement_type", "unknown") if ai else "unknown",
+            "engagement_reasoning": ai.get("engagement_reasoning"),
+            "requirements_summary": ai.get("requirements_summary"),
+            "decision_maker_guess": ai.get("decision_maker_guess") or enr.get("decision_maker_title"),
+            "company_stage_guess": ai.get("company_stage_guess") or enr.get("funding_stage"),
+            "status": "new",
+        }
+        # Remove None values
+        role_data = {k: v for k, v in role_data.items() if v is not None}
+
+        result = supabase_request("POST", "role", data=role_data)
+        if result:
+            roles_created += 1
+
+    logger.info(f"  Supabase: {companies_created} new companies, {companies_updated} updated, {roles_created} roles created, {roles_skipped} roles skipped (dupes)")
+    return True
+
+
+# ═══════════════════════════════════════════════════════════
 # GOOGLE SHEETS WRITER
 # ═══════════════════════════════════════════════════════════
 def write_to_sheets(jobs):
@@ -906,6 +1117,7 @@ def main():
     print("  ARTEQ JOB SIGNAL SCRAPER v6 — Multi-Source Pipeline")
     print(f"  Sources: JSearch{'✓' if API_KEY else '✗'} | Arbeitnow ✓ | Jobicy ✓ | RemoteOK ✓")
     print(f"  AI Scoring: {'ON ✓' if use_ai else 'OFF'}")
+    print(f"  Supabase: {'ON ✓' if SUPABASE_URL else 'OFF'}")
     print(f"  Google Sheets: {'ON ✓' if os.path.exists(CREDENTIALS_FILE) else 'OFF'}")
     print("=" * 95)
 
@@ -1089,6 +1301,13 @@ def main():
             print(f"  ⚠️  {job['company'][:25]:25} {ai.get('agency_reason', '')[:50]}")
 
     print(f"\n{'='*115}")
+
+    # ── Supabase ──────────────────────────────────────────────
+    if SUPABASE_URL and SUPABASE_KEY:
+        write_to_supabase(unique)
+        print(f"  🗄️  Supabase: https://supabase.com/dashboard")
+    else:
+        logger.info("No Supabase credentials — skipping")
 
     # ── Google Sheets ───────────────────────────────────────
     if os.path.exists(CREDENTIALS_FILE):

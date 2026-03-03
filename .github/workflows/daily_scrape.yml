@@ -14,7 +14,7 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -35,6 +35,8 @@ jobs:
         env:
           JSEARCH_API_KEY: ${{ secrets.JSEARCH_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python quick_run.py
 
       - name: Upload CSV backup
@@ -43,3 +45,4 @@ jobs:
           name: leads-${{ github.run_number }}
           path: leads_*.csv
           retention-days: 30
+          
