@@ -2,6 +2,7 @@ name: Arteq Daily Scrape
 
 on:
   schedule:
+    # 06:00 UTC = 07:00 CET / 14:00 SGT
     - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
