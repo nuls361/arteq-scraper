@@ -446,6 +446,157 @@ def scrape_remoteok():
 
 
 # ═══════════════════════════════════════════════════════════
+# SOURCE 5: JobSpy (LinkedIn, Indeed, Glassdoor, Google Jobs)
+# ═══════════════════════════════════════════════════════════
+JOBSPY_PROXY = os.getenv("JOBSPY_PROXY", "")  # e.g. "user:pass@host:port"
+
+JOBSPY_SEARCHES = [
+    # Core interim/fractional roles
+    {"search_term": "interim CFO", "location": "Germany"},
+    {"search_term": "interim CTO", "location": "Germany"},
+    {"search_term": "interim COO", "location": "Germany"},
+    {"search_term": "fractional CFO", "location": "Germany"},
+    {"search_term": "fractional CTO", "location": "Germany"},
+    {"search_term": "interim Geschäftsführer", "location": "Germany"},
+    # C-level direct hires (Arteq can convertible-pitch these)
+    {"search_term": "Head of Finance", "location": "Berlin"},
+    {"search_term": "VP Finance", "location": "Germany"},
+    {"search_term": "Head of People", "location": "Berlin"},
+    {"search_term": "Head of Engineering", "location": "Germany"},
+]
+
+# Sites to use — LinkedIn needs proxies
+JOBSPY_SITES_WITH_PROXY = ["indeed", "linkedin", "glassdoor", "google"]
+JOBSPY_SITES_NO_PROXY = ["indeed", "glassdoor", "google"]
+
+
+def scrape_jobspy():
+    """JobSpy — scrape LinkedIn, Indeed, Glassdoor, Google Jobs."""
+    try:
+        from jobspy import scrape_jobs
+    except ImportError:
+        logger.warning("JobSpy: python-jobspy not installed, skipping")
+        return []
+
+    proxies = [JOBSPY_PROXY] if JOBSPY_PROXY else None
+    sites = JOBSPY_SITES_WITH_PROXY if proxies else JOBSPY_SITES_NO_PROXY
+
+    logger.info(f"JobSpy: sites={sites} | proxy={'yes' if proxies else 'no'} | {len(JOBSPY_SEARCHES)} searches")
+
+    all_jobs = []
+    seen_urls = set()
+
+    for search in JOBSPY_SEARCHES:
+        term = search["search_term"]
+        loc = search["location"]
+
+        try:
+            logger.info(f"  JobSpy: '{term}' in {loc}...")
+
+            df = scrape_jobs(
+                site_name=sites,
+                search_term=term,
+                location=loc,
+                results_wanted=15,
+                hours_old=72,
+                country_indeed="Germany",
+                linkedin_fetch_description=True,
+                description_format="markdown",
+                proxies=proxies,
+                verbose=0,
+            )
+
+            if df is None or df.empty:
+                logger.info(f"    → 0 results")
+                continue
+
+            logger.info(f"    → {len(df)} results")
+
+            for _, row in df.iterrows():
+                url = str(row.get("job_url", ""))
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
+
+                company = str(row.get("company", "") or "").strip()
+                title = str(row.get("title", "") or "").strip()
+
+                if not company or not title:
+                    continue
+
+                # Skip excluded companies/titles
+                if is_excluded(company, title):
+                    continue
+
+                # Map location
+                location_str = str(row.get("location", "") or "")
+                city = str(row.get("city", "") or "")
+                state = str(row.get("state", "") or "")
+                country = str(row.get("country", "") or "")
+                if not location_str and city:
+                    location_str = ", ".join(filter(None, [city, state, country]))
+
+                # Map description
+                desc = str(row.get("description", "") or "")
+
+                # Map remote
+                remote = bool(row.get("is_remote"))
+
+                # Map date
+                posted = ""
+                if row.get("date_posted") and str(row.get("date_posted")) != "NaT":
+                    try:
+                        posted = str(row["date_posted"])[:10]
+                    except Exception:
+                        pass
+
+                # Detect source site
+                site = str(row.get("site", "jobspy")).lower()
+
+                job = {
+                    "title": title,
+                    "company": company,
+                    "location": location_str or "Germany",
+                    "description": desc[:15000],
+                    "url": url,
+                    "source": f"jobspy_{site}",
+                    "posted": posted,
+                    "is_remote": remote,
+                }
+
+                # Indeed bonus: company data
+                if row.get("company_industry"):
+                    job["_company_industry"] = str(row["company_industry"])
+                if row.get("company_employees_label"):
+                    job["_company_headcount"] = str(row["company_employees_label"])
+                if row.get("company_revenue_label"):
+                    job["_company_revenue"] = str(row["company_revenue_label"])
+                if row.get("company_url"):
+                    job["_company_url"] = str(row["company_url"])
+                if row.get("company_description"):
+                    job["_company_description"] = str(row["company_description"])[:500]
+
+                # LinkedIn bonus: job level
+                if row.get("job_level"):
+                    job["_job_level"] = str(row["job_level"])
+
+                # Salary data
+                if row.get("min_amount") and row.get("max_amount"):
+                    job["_salary"] = f"{row.get('min_amount')}-{row.get('max_amount')} {row.get('currency', '')}/{row.get('interval', 'yearly')}"
+
+                all_jobs.append(job)
+
+        except Exception as e:
+            logger.warning(f"  JobSpy error on '{term}': {e}")
+            continue
+
+        time.sleep(1)
+
+    logger.info(f"JobSpy total: {len(all_jobs)} unique jobs across {', '.join(sites)}")
+    return all_jobs
+
+
+# ═══════════════════════════════════════════════════════════
 # SCORING & AI ANALYSIS
 # ═══════════════════════════════════════════════════════════
 def rule_score(title, description, location, is_remote):
@@ -1445,8 +1596,8 @@ def main():
     use_ai = bool(ANTHROPIC_KEY)
 
     print("\n" + "=" * 95)
-    print("  ARTEQ JOB SIGNAL SCRAPER v6 — Multi-Source Pipeline")
-    print(f"  Sources: JSearch{'✓' if API_KEY else '✗'} | Arbeitnow ✓ | Jobicy ✓ | RemoteOK ✓")
+    print("  ARTEQ JOB SIGNAL SCRAPER v9 — Multi-Source Pipeline")
+    print(f"  Sources: JSearch{'✓' if API_KEY else '✗'} | Arbeitnow ✓ | Jobicy ✓ | RemoteOK ✓ | JobSpy{'(+proxy)' if JOBSPY_PROXY else ' ✓'}")
     print(f"  AI Scoring: {'ON ✓' if use_ai else 'OFF'}")
     print(f"  Supabase: {'ON ✓' if SUPABASE_URL else 'OFF'}")
     print(f"  Apollo: {'ON ✓ (Hot=enrich, Warm=search)' if APOLLO_API_KEY else 'OFF → DDG fallback'}")
@@ -1488,6 +1639,9 @@ def main():
 
     logger.info("\n── SOURCE 4: RemoteOK ──")
     all_raw.extend(scrape_remoteok())
+
+    logger.info("\n── SOURCE 5: JobSpy (LinkedIn/Indeed/Glassdoor/Google) ──")
+    all_raw.extend(scrape_jobspy())
 
     logger.info(f"\nTotal raw jobs across all sources: {len(all_raw)}")
 
@@ -1539,12 +1693,31 @@ def main():
         logger.info(f"AI done: {ai_count} analyzed | {agency_count} agencies detected")
         unique.sort(key=lambda x: x["score"], reverse=True)
 
+    # ── Pre-enrichment from JobSpy data (free, no API calls) ──
+    for job in unique:
+        if job.get("_company_industry") and not job.get("enrichment"):
+            job["enrichment"] = {
+                "industry": job.get("_company_industry", "unknown"),
+                "headcount_estimate": job.get("_company_headcount", ""),
+                "company_revenue": job.get("_company_revenue", ""),
+                "company_website": job.get("_company_url", ""),
+                "company_description": job.get("_company_description", ""),
+                "funding_stage": "unknown",
+                "funding_amount": "unknown",
+                "investors": "unknown",
+                "arteq_fit": "unknown",
+                "arteq_fit_reason": "",
+                "hiring_signal": "",
+            }
+            logger.info(f"  Pre-enriched from JobSpy: {job['company']} ({job['_company_industry']})")
+
     # ── Company Enrichment (Agentic) ────────────────────────
     if use_ai:
         # Enrich Hot leads + Warm C-Level leads
         enrich_candidates = [
             j for j in unique
             if not (j.get("ai_analysis") or {}).get("is_agency")
+            and not j.get("enrichment")  # skip if already enriched by JobSpy
             and (j["tier"] == "HOT" or (j["tier"] == "WARM" and j["score"] >= 40))
         ]
         # Deduplicate by company name (don't enrich same company twice)
