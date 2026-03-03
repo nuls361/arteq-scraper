@@ -562,8 +562,15 @@ def scrape_jobspy():
                     except Exception:
                         pass
 
-                # Detect source site
-                site = str(row.get("site", "jobspy")).lower()
+                # Detect source site — map to valid role_source enum values
+                site = str(row.get("site", "")).lower()
+                source_map = {
+                    "indeed": "indeed",
+                    "linkedin": "linkedin",
+                    "glassdoor": "glassdoor",
+                    "google": "google",
+                }
+                source_val = source_map.get(site, "manual")
 
                 job = {
                     "title": title,
@@ -571,7 +578,7 @@ def scrape_jobspy():
                     "location": location_str or "Germany",
                     "description": desc[:15000],
                     "url": url,
-                    "source": f"jobspy_{site}",
+                    "source": source_val,
                     "posted": posted,
                     "is_remote": remote,
                 }
@@ -715,7 +722,7 @@ Antworte NUR in validem JSON (kein Markdown, keine Backticks):
   "is_agency": true/false,
   "agency_reason": "Falls is_agency=true: Warum? Sonst leer",
   "actual_client": "Falls is_agency=true und erkennbar: Kundenname. Sonst 'unbekannt'",
-  "engagement_type": "fractional" | "interim" | "full-time" | "convertible",
+  "engagement_type": "fractional" | "interim" | "full_time" | "convertible",
   "engagement_reasoning": "Ein Satz",
   "lead_score": 0-100,
   "tier": "hot" | "warm" | "parked",
@@ -1481,7 +1488,7 @@ def write_to_supabase(jobs):
             "final_score": ai.get("lead_score", job.get("score", 0)),
             "tier": tier if tier in ("hot", "warm", "parked", "disqualified") else "parked",
             "signals": job.get("signals", []),
-            "engagement_type": ai.get("engagement_type", "unknown") if ai else "unknown",
+            "engagement_type": ai.get("engagement_type", "unknown").replace("-", "_") if ai else "unknown",
             "engagement_reasoning": ai.get("engagement_reasoning"),
             "requirements_summary": ai.get("requirements_summary"),
             "decision_maker_guess": ai.get("decision_maker_guess") or enr.get("decision_maker_title"),
