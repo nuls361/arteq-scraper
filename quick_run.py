@@ -120,46 +120,61 @@ def scrape_jsearch():
         "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
     }
     jobs = []
+    consecutive_429s = 0
     for query in JSEARCH_QUERIES:
-        try:
-            resp = requests.get(
-                "https://jsearch.p.rapidapi.com/search",
-                headers=headers,
-                params={"query": query, "page": "1", "num_pages": "1",
-                        "date_posted": "month", "country": "de"},
-                timeout=20,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            for raw in data.get("data") or []:
-                company = safe(raw.get("employer_name"), "Unknown")
-                title = safe(raw.get("job_title"), "Unknown")
-                if is_excluded(company, title):
+        if consecutive_429s >= 3:
+            logger.warning(f"JSearch: {consecutive_429s} consecutive 429s — likely quota exceeded, stopping")
+            break
+
+        for attempt in range(4):  # up to 4 attempts per query
+            try:
+                resp = requests.get(
+                    "https://jsearch.p.rapidapi.com/search",
+                    headers=headers,
+                    params={"query": query, "page": "1", "num_pages": "1",
+                            "date_posted": "month", "country": "de"},
+                    timeout=20,
+                )
+                if resp.status_code == 429:
+                    wait = 5 * (2 ** attempt)  # 5s, 10s, 20s, 40s
+                    logger.warning(f"JSearch 429 for '{query}' — retry {attempt+1}/3 in {wait}s")
+                    consecutive_429s += 1
+                    time.sleep(wait)
                     continue
+                resp.raise_for_status()
+                consecutive_429s = 0  # reset on success
+                data = resp.json()
+                for raw in data.get("data") or []:
+                    company = safe(raw.get("employer_name"), "Unknown")
+                    title = safe(raw.get("job_title"), "Unknown")
+                    if is_excluded(company, title):
+                        continue
 
-                city = safe(raw.get("job_city"))
-                state = safe(raw.get("job_state"))
-                country = safe(raw.get("job_country"))
-                remote = raw.get("job_is_remote", False) or False
-                loc = ", ".join(p for p in [city, state, country] if p)
-                if remote:
-                    loc += " (Remote)" if loc else "Remote"
+                    city = safe(raw.get("job_city"))
+                    state = safe(raw.get("job_state"))
+                    country = safe(raw.get("job_country"))
+                    remote = raw.get("job_is_remote", False) or False
+                    loc = ", ".join(p for p in [city, state, country] if p)
+                    if remote:
+                        loc += " (Remote)" if loc else "Remote"
 
-                if not is_dach(loc) and country not in ("DE", "AT", "CH"):
-                    continue
+                    if not is_dach(loc) and country not in ("DE", "AT", "CH"):
+                        continue
 
-                jobs.append({
-                    "company": company,
-                    "title": title,
-                    "location": loc,
-                    "is_remote": remote,
-                    "description": safe(raw.get("job_description")),
-                    "url": safe(raw.get("job_apply_link")) or safe(raw.get("job_google_link")),
-                    "posted": safe(raw.get("job_posted_at_datetime_utc"))[:10] if raw.get("job_posted_at_datetime_utc") else "",
-                    "source": "jsearch",
-                })
-        except Exception as e:
-            logger.error(f"JSearch error for '{query}': {e}")
+                    jobs.append({
+                        "company": company,
+                        "title": title,
+                        "location": loc,
+                        "is_remote": remote,
+                        "description": safe(raw.get("job_description")),
+                        "url": safe(raw.get("job_apply_link")) or safe(raw.get("job_google_link")),
+                        "posted": safe(raw.get("job_posted_at_datetime_utc"))[:10] if raw.get("job_posted_at_datetime_utc") else "",
+                        "source": "jsearch",
+                    })
+                break  # success, move to next query
+            except Exception as e:
+                logger.error(f"JSearch error for '{query}': {e}")
+                break  # non-429 error, skip this query
         time.sleep(3)  # Respect rate limits
 
     logger.info(f"JSearch: {len(jobs)} DACH jobs found")
