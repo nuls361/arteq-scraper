@@ -156,11 +156,11 @@ def scrape_jsearch():
                     "description": safe(raw.get("job_description")),
                     "url": safe(raw.get("job_apply_link")) or safe(raw.get("job_google_link")),
                     "posted": safe(raw.get("job_posted_at_datetime_utc"))[:10] if raw.get("job_posted_at_datetime_utc") else "",
-                    "source": "JSearch",
+                    "source": "jsearch",
                 })
         except Exception as e:
             logger.error(f"JSearch error for '{query}': {e}")
-        time.sleep(1)
+        time.sleep(3)  # Respect rate limits
 
     logger.info(f"JSearch: {len(jobs)} DACH jobs found")
     return jobs
@@ -282,7 +282,7 @@ def scrape_arbeitnow():
                     "description": clean_desc[:5000],
                     "url": job_url,
                     "posted": created,
-                    "source": "Arbeitnow",
+                    "source": "arbeitnow",
                 })
 
             # Check if there are more pages
@@ -355,7 +355,7 @@ def scrape_jobicy():
                     "description": clean_desc[:5000],
                     "url": safe(raw.get("url"), ""),
                     "posted": pub_date,
-                    "source": "Jobicy",
+                    "source": "jobicy",
                 })
 
         except Exception as e:
@@ -435,7 +435,7 @@ def scrape_remoteok():
                 "description": clean_desc[:5000],
                 "url": job_url,
                 "posted": pub_date,
-                "source": "RemoteOK",
+                "source": "remoteok",
             })
 
     except Exception as e:
@@ -727,7 +727,7 @@ SCORING-REGELN:
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-sonnet-4-5-20250929",
                 "max_tokens": 600,
                 "messages": [{"role": "user", "content": prompt}],
             },
@@ -903,7 +903,7 @@ REGELN:
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-sonnet-4-5-20250929",
                 "max_tokens": 800,
                 "messages": [{"role": "user", "content": prompt}],
             },
@@ -1416,7 +1416,20 @@ def write_to_supabase(jobs):
                     company_cache[name_lower] = company_id
                     companies_created += 1
                 else:
-                    continue
+                    # POST failed (likely 409 domain dupe) - try lookup by domain
+                    if domain:
+                        existing_by_domain = supabase_request("GET", "company", params={
+                            "domain": f"eq.{domain}",
+                            "select": "id",
+                            "limit": "1",
+                        })
+                        if existing_by_domain and len(existing_by_domain) > 0:
+                            company_id = existing_by_domain[0]["id"]
+                            company_cache[name_lower] = company_id
+                        else:
+                            continue
+                    else:
+                        continue
 
         # ── Step 2: Insert Role ─────────────────────────────
         # Check if role already exists (dedup by company + title + source)
@@ -1655,14 +1668,14 @@ def main():
                 "https://api.anthropic.com/v1/messages",
                 headers={"x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01",
                          "content-type": "application/json"},
-                json={"model": "claude-sonnet-4-20250514", "max_tokens": 10,
+                json={"model": "claude-sonnet-4-5-20250929", "max_tokens": 10,
                       "messages": [{"role": "user", "content": "Say OK"}]},
                 timeout=10,
             )
             if test.status_code == 200:
                 logger.info("Claude API: OK ✓")
             else:
-                logger.error(f"Claude API {test.status_code} — falling back to rule-based")
+                logger.error(f"Claude API {test.status_code}: {test.text[:300]} — falling back to rule-based")
                 use_ai = False
         except Exception as e:
             logger.error(f"Claude API failed: {e} — falling back to rule-based")
@@ -1736,7 +1749,6 @@ def main():
         try:
             roles_data = supabase_request("GET", "role", params={
                 "select": "id,title,first_seen_at,company:company_id(name)",
-                "status": "eq.open",
                 "limit": "1000",
             })
             if roles_data:
