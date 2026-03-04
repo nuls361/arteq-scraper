@@ -266,6 +266,8 @@ const ENTRY_TYPE = {
   meeting_note: { label: "Meeting Note", icon: "🤝", bg: "#EDE9FE", color: "#6D28D9" },
   note:         { label: "Note",         icon: "📝", bg: "#FFF0E1", color: "#AD5700" },
   file:         { label: "File",         icon: "📎", bg: "#F0FDF4", color: "#15803D" },
+  agent_action: { label: "Agent",        icon: "🤖", bg: "#EDE9FE", color: "#6D28D9" },
+  outreach:     { label: "Outreach",     icon: "📨", bg: "#DBEAFE", color: "#1D4ED8" },
 };
 
 function CompanyDossier({ company, contacts = [], onClose, onContactsChanged }) {
@@ -683,16 +685,19 @@ export default function ArteqCRM() {
   const [sort, setSort] = useState({ key:"final_score", dir:"desc" });
   const [selected, setSelected] = useState(null);
   const [selectedCompany, setSelectedCompany] = useState(null);
+  const [agentLogs, setAgentLogs] = useState([]);
   const cMap = useRef({});
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [c, r, cc] = await Promise.all([
+      const [c, r, cc, logs] = await Promise.all([
         supaFetch("company","select=*&limit=1000"),
         supaFetch("role","select=*&limit=1000"),
         supaFetch("company_contact","select=*,contact:contact_id(*)&limit=2000").catch(() => []),
+        supaFetch("agent_log","select=*&order=created_at.desc&limit=200").catch(() => []),
       ]);
+      setAgentLogs(logs || []);
       setCompanies(c);
       const m = {}; c.forEach(co => { m[co.id] = co; }); cMap.current = m;
       setRoles(r);
@@ -779,6 +784,7 @@ export default function ArteqCRM() {
         {[
           { icon:"⊙", label:"Roles", count:roles.length, key:"roles" },
           { icon:"○", label:"Companies", count:companies.length, key:"companies" },
+          { icon:"◎", label:"Agent Log", count:null, key:"agent" },
         ].map(n => (
           <div key={n.label} onClick={() => { setTab(n.key); setSearch(""); setTierFilter("all"); setSourceFilter("all"); setStatusFilter("all"); }} style={{
             display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:6,
@@ -826,8 +832,8 @@ export default function ArteqCRM() {
         {/* Topbar */}
         <div style={{ padding:"12px 20px", borderBottom:"1px solid #EBEBED", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-            <span style={{ fontSize:15, fontWeight:600 }}>{tab === "roles" ? "Roles" : "Companies"}</span>
-            <span style={{ fontSize:12, color:"#A0A3A9" }}>{tab === "roles" ? `${filtered.length} records` : `${filteredCompanies.length} records`}</span>
+            <span style={{ fontSize:15, fontWeight:600 }}>{tab === "roles" ? "Roles" : tab === "companies" ? "Companies" : "Agent Log"}</span>
+            <span style={{ fontSize:12, color:"#A0A3A9" }}>{tab === "roles" ? `${filtered.length} records` : tab === "companies" ? `${filteredCompanies.length} records` : `${agentLogs.length} decisions`}</span>
           </div>
           <button onClick={load} style={{
             padding:"5px 12px", borderRadius:6, border:"1px solid #EBEBED",
@@ -837,7 +843,7 @@ export default function ArteqCRM() {
         </div>
 
         {/* Filters */}
-        {tab === "roles" ? (
+        {tab === "agent" ? null : tab === "roles" ? (
           <div style={{ display:"flex", alignItems:"center", gap:5, padding:"8px 20px", borderBottom:"1px solid #EBEBED", flexWrap:"wrap" }}>
             {["all",...Object.keys(tierCounts)].map(t => (
               <button key={t} onClick={() => setTierFilter(t)} style={{
@@ -957,7 +963,7 @@ export default function ArteqCRM() {
                 </tbody>
               </table>
             )
-          ) : (
+          ) : tab === "companies" ? (
             filteredCompanies.length === 0 ? (
               <div style={{ padding:60, textAlign:"center", color:"#A0A3A9" }}>
                 <div style={{ fontSize:26, marginBottom:6 }}>∅</div>
@@ -1014,6 +1020,59 @@ export default function ArteqCRM() {
                   })}
                 </tbody>
               </table>
+            )
+          ) : (
+            /* Agent Log Tab */
+            agentLogs.length === 0 ? (
+              <div style={{ padding:60, textAlign:"center", color:"#A0A3A9" }}>
+                <div style={{ fontSize:26, marginBottom:6 }}>🤖</div>
+                <div style={{ fontSize:14, fontWeight:500 }}>No agent activity yet</div>
+                <div style={{ fontSize:12, marginTop:4 }}>Run the orchestrator to generate decisions.</div>
+              </div>
+            ) : (
+              <div style={{ padding:"16px 20px" }}>
+                {(() => {
+                  const ACTION_STYLE = {
+                    promote_company:   { icon:"⬆", bg:"#D1FAE5", color:"#065F46", label:"Promoted" },
+                    downgrade_company: { icon:"⬇", bg:"#FDECEC", color:"#C13030", label:"Downgraded" },
+                    expire_role:       { icon:"⏰", bg:"#FFF0E1", color:"#AD5700", label:"Expired" },
+                    dedup_contact:     { icon:"🔗", bg:"#DBEAFE", color:"#1D4ED8", label:"Deduped" },
+                    enrich_contact:    { icon:"✉", bg:"#EDE9FE", color:"#6D28D9", label:"Enriched" },
+                    outreach_draft:    { icon:"📝", bg:"#DBEAFE", color:"#1D4ED8", label:"Draft" },
+                    outreach_sent:     { icon:"📨", bg:"#D1FAE5", color:"#065F46", label:"Sent" },
+                  };
+                  // Group by date
+                  const groups = {};
+                  agentLogs.forEach(log => {
+                    const d = log.created_at ? new Date(log.created_at).toLocaleDateString("de-DE",{day:"numeric",month:"short",year:"numeric"}) : "Unknown";
+                    if (!groups[d]) groups[d] = [];
+                    groups[d].push(log);
+                  });
+                  return Object.entries(groups).map(([date, logs]) => (
+                    <div key={date} style={{ marginBottom:20 }}>
+                      <div style={{ fontSize:11, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.4, marginBottom:8, borderBottom:"1px solid #F7F7F8", paddingBottom:6 }}>{date}</div>
+                      {logs.map((log, i) => {
+                        const st = ACTION_STYLE[log.action] || { icon:"●", bg:"#F2F3F5", color:"#6B6F76", label:log.action };
+                        return (
+                          <div key={log.id || i} style={{ display:"flex", gap:10, padding:"8px 0", borderBottom:"1px solid #F7F7F8" }}>
+                            <span style={{ width:28, height:28, borderRadius:6, background:st.bg, color:st.color, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>{st.icon}</span>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                                <span style={{ padding:"2px 6px", borderRadius:3, fontSize:10, fontWeight:600, background:st.bg, color:st.color }}>{st.label}</span>
+                                <span style={{ fontSize:11, color:"#A0A3A9" }}>{log.entity_type}</span>
+                                <span style={{ fontSize:10, color:"#A0A3A9", marginLeft:"auto" }}>
+                                  {log.created_at ? new Date(log.created_at).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"}) : ""}
+                                </span>
+                              </div>
+                              <div style={{ fontSize:12, color:"#1A1A1A", marginTop:3, lineHeight:1.4 }}>{log.reason || "—"}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ));
+                })()}
+              </div>
             )
           )}
         </div>
