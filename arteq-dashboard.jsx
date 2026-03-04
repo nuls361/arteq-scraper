@@ -215,11 +215,50 @@ function DetailDrawer({ role, company, dm, onClose }) {
   );
 }
 
+async function supaUploadFile(bucket, path, file) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      "Content-Type": file.type || "application/octet-stream",
+    },
+    body: file,
+  });
+  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+  // Public URL for the file
+  return `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
+}
+
+function formatFileSize(bytes) {
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const FILE_ICONS = {
+  "application/pdf": "📄",
+  "image/": "🖼",
+  "text/": "📃",
+  "application/vnd.openxmlformats": "📊",
+  "application/vnd.ms-": "📊",
+};
+
+function fileIcon(mimeType) {
+  if (!mimeType) return "📎";
+  for (const [prefix, icon] of Object.entries(FILE_ICONS)) {
+    if (mimeType.startsWith(prefix)) return icon;
+  }
+  return "📎";
+}
+
 const ENTRY_TYPE = {
   signal:       { label: "Signal",       icon: "⚡", bg: "#FDECEC", color: "#C13030" },
   news:         { label: "News",         icon: "📰", bg: "#DBEAFE", color: "#1D4ED8" },
   meeting_note: { label: "Meeting Note", icon: "🤝", bg: "#EDE9FE", color: "#6D28D9" },
   note:         { label: "Note",         icon: "📝", bg: "#FFF0E1", color: "#AD5700" },
+  file:         { label: "File",         icon: "📎", bg: "#F0FDF4", color: "#15803D" },
 };
 
 function CompanyDossier({ company, onClose }) {
@@ -229,6 +268,8 @@ function CompanyDossier({ company, onClose }) {
   const [noteTitle, setNoteTitle] = useState("");
   const [noteContent, setNoteContent] = useState("");
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
 
   const loadEntries = useCallback(async () => {
     if (!company) return;
@@ -266,6 +307,40 @@ function CompanyDossier({ company, onClose }) {
       console.error("Save note error:", e);
     }
     setSaving(false);
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      // Upload to Supabase Storage: dossier-files/{company_id}/{timestamp}_{filename}
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const storagePath = `${company.id}/${Date.now()}_${safeName}`;
+      const publicUrl = await supaUploadFile("dossier-files", storagePath, file);
+
+      // Create dossier entry for the file
+      await supaPost("company_dossier", {
+        company_id: company.id,
+        entry_type: "file",
+        title: file.name,
+        content: noteContent.trim() || `File uploaded: ${file.name}`,
+        source: "manual",
+        source_url: publicUrl,
+        file_name: file.name,
+        file_size: file.size,
+        file_type: file.type,
+        author: "Arteq Team",
+      });
+      setNoteContent("");
+      await loadEntries();
+    } catch (err) {
+      console.error("File upload error:", err);
+      alert("Upload fehlgeschlagen: " + err.message);
+    }
+    setUploading(false);
+    // Reset file input
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   if (!company) return null;
@@ -375,6 +450,25 @@ function CompanyDossier({ company, onClose }) {
               fontFamily:"inherit",
             }}
           >{saving ? "Saving…" : "Add to Dossier"}</button>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              onChange={handleFileUpload}
+              style={{ display: "none" }}
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.png,.jpg,.jpeg,.gif,.svg,.zip"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              style={{
+                marginTop:6, marginLeft:8, padding:"6px 16px", borderRadius:6,
+                background:"#fff", color:"#6B6F76",
+                border:"1px solid #EBEBED", fontSize:12, fontWeight:600,
+                cursor: uploading ? "default" : "pointer",
+                fontFamily:"inherit",
+              }}
+            >{uploading ? "Uploading…" : "📎 Upload File"}</button>
         </div>
 
         {/* Dossier Feed */}
@@ -438,10 +532,34 @@ function CompanyDossier({ company, onClose }) {
                         </div>
                       )}
 
+                      {/* File attachment card */}
+                      {entry.entry_type === "file" && entry.source_url && (
+                        <a href={entry.source_url} target="_blank" rel="noopener" style={{
+                          display:"flex", alignItems:"center", gap:10,
+                          padding:"8px 12px", borderRadius:6,
+                          background:"#fff", border:"1px solid #EBEBED",
+                          textDecoration:"none", color:"#1A1A1A",
+                          marginBottom: entry.content && !entry.content.startsWith("File uploaded:") ? 6 : 0,
+                        }}>
+                          <span style={{ fontSize:20 }}>{fileIcon(entry.file_type)}</span>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontSize:12, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                              {entry.file_name || entry.title || "Download"}
+                            </div>
+                            {entry.file_size && (
+                              <div style={{ fontSize:10, color:"#A0A3A9", marginTop:1 }}>{formatFileSize(entry.file_size)}</div>
+                            )}
+                          </div>
+                          <span style={{ fontSize:11, color:"#5B5FC7", fontWeight:600, whiteSpace:"nowrap" }}>Open ↗</span>
+                        </a>
+                      )}
+
                       {/* Content */}
-                      <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, whiteSpace:"pre-wrap" }}>
-                        {entry.content}
-                      </div>
+                      {entry.content && !(entry.entry_type === "file" && entry.content.startsWith("File uploaded:")) && (
+                        <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, whiteSpace:"pre-wrap" }}>
+                          {entry.content}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

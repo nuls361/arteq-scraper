@@ -12,8 +12,14 @@ CREATE TABLE IF NOT EXISTS company_dossier (
         'signal',           -- auto: from signal_scraper
         'news',             -- auto: from RSS/DDG without signal classification
         'meeting_note',     -- manual: notes from meetings
-        'note'              -- manual: general observations
+        'note',             -- manual: general observations
+        'file'              -- manual: uploaded file (PDF, image, doc, etc.)
     )),
+
+    -- File metadata (for entry_type = 'file')
+    file_name   TEXT,           -- original filename
+    file_size   INTEGER,        -- file size in bytes
+    file_type   TEXT,           -- MIME type (e.g. "application/pdf")
 
     -- Content
     title       TEXT,
