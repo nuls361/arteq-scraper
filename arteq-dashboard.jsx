@@ -270,6 +270,72 @@ const ENTRY_TYPE = {
   outreach:     { label: "Outreach",     icon: "📨", bg: "#DBEAFE", color: "#1D4ED8" },
 };
 
+function OutreachThread({ thread, contacts: threadContacts }) {
+  if (!thread || thread.length === 0) return null;
+
+  const firstMsg = thread[0];
+  const contactName = (() => {
+    const cid = firstMsg.contact_id;
+    const c = (threadContacts || []).find(tc => tc.id === cid);
+    return c ? c.name : "Unknown";
+  })();
+
+  return (
+    <div style={{ border:"1px solid #EBEBED", borderRadius:8, overflow:"hidden", marginBottom:12 }}>
+      <div style={{ padding:"10px 14px", background:"#F0F4FF", borderBottom:"1px solid #EBEBED", display:"flex", alignItems:"center", gap:8 }}>
+        <span style={{ fontSize:14 }}>💬</span>
+        <span style={{ fontSize:12, fontWeight:600, color:"#1D4ED8" }}>Thread with {contactName}</span>
+        <span style={{ flex:1 }} />
+        <span style={{ fontSize:10, color:"#A0A3A9" }}>{thread.length} messages</span>
+        {thread.some(m => m.reply_sentiment) && (
+          <span style={{
+            padding:"2px 6px", borderRadius:3, fontSize:10, fontWeight:600,
+            background: thread.some(m => m.reply_sentiment === "interested" || m.reply_sentiment === "positive") ? "#D1FAE5" : "#FEF3C7",
+            color: thread.some(m => m.reply_sentiment === "interested" || m.reply_sentiment === "positive") ? "#065F46" : "#92400E",
+          }}>
+            {thread.find(m => m.reply_sentiment)?.reply_sentiment}
+          </span>
+        )}
+      </div>
+      {thread.map((msg, i) => {
+        const isOutbound = msg.direction === "outbound";
+        const date = msg.created_at ? new Date(msg.created_at) : null;
+        return (
+          <div key={msg.id || i} style={{
+            padding:"10px 14px",
+            background: isOutbound ? "#fff" : "#F7F7F8",
+            borderBottom: i < thread.length - 1 ? "1px solid #F0F0F2" : "none",
+          }}>
+            <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
+              <span style={{ fontSize:12, fontWeight:600, color: isOutbound ? "#1D4ED8" : "#065F46" }}>
+                {isOutbound ? "Niels (Arteq)" : contactName}
+              </span>
+              <span style={{
+                padding:"1px 5px", borderRadius:3, fontSize:9, fontWeight:600,
+                background: isOutbound ? "#DBEAFE" : "#D1FAE5",
+                color: isOutbound ? "#1D4ED8" : "#065F46",
+              }}>{isOutbound ? "sent" : "reply"}</span>
+              {msg.status && msg.status === "draft" && (
+                <span style={{ padding:"1px 5px", borderRadius:3, fontSize:9, fontWeight:600, background:"#FEF3C7", color:"#92400E" }}>draft</span>
+              )}
+              <span style={{ flex:1 }} />
+              <span style={{ fontSize:10, color:"#A0A3A9" }}>
+                {date ? date.toLocaleDateString("de-DE", { day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" }) : ""}
+              </span>
+            </div>
+            {msg.subject && i === 0 && (
+              <div style={{ fontSize:12, fontWeight:600, color:"#1A1A1A", marginBottom:4 }}>{msg.subject}</div>
+            )}
+            <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.5 }}
+              dangerouslySetInnerHTML={{ __html: msg.body_html || msg.raw_text || "" }}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function CompanyDossier({ company, contacts = [], onClose, onContactsChanged }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -282,6 +348,8 @@ function CompanyDossier({ company, contacts = [], onClose, onContactsChanged }) 
   const [showAddContact, setShowAddContact] = useState(false);
   const [newContact, setNewContact] = useState({ name: "", title: "", linkedin_url: "", email: "", phone: "" });
   const [savingContact, setSavingContact] = useState(false);
+  const [outreachThreads, setOutreachThreads] = useState([]);
+  const [threadContacts, setThreadContacts] = useState([]);
 
   const loadEntries = useCallback(async () => {
     if (!company) return;
@@ -299,6 +367,43 @@ function CompanyDossier({ company, contacts = [], onClose, onContactsChanged }) 
   }, [company]);
 
   useEffect(() => { loadEntries(); }, [loadEntries]);
+
+  // Load outreach conversation threads for this company
+  useEffect(() => {
+    if (!company) return;
+    (async () => {
+      try {
+        const outreach = await supaFetch(
+          "outreach",
+          `company_id=eq.${company.id}&order=created_at.asc&limit=100`
+        );
+        if (outreach && outreach.length > 0) {
+          // Group by thread_id
+          const threads = {};
+          for (const msg of outreach) {
+            const tid = msg.thread_id || msg.id;
+            if (!threads[tid]) threads[tid] = [];
+            threads[tid].push(msg);
+          }
+          setOutreachThreads(Object.values(threads));
+
+          // Load contact names for threads
+          const contactIds = [...new Set(outreach.map(m => m.contact_id).filter(Boolean))];
+          if (contactIds.length > 0) {
+            const contactData = await supaFetch(
+              "contact",
+              `id=in.(${contactIds.join(",")})&select=id,name,title,email`
+            );
+            setThreadContacts(contactData || []);
+          }
+        } else {
+          setOutreachThreads([]);
+        }
+      } catch (e) {
+        console.error("Outreach thread load error:", e);
+      }
+    })();
+  }, [company]);
 
   const handleAddNote = async () => {
     if (!noteContent.trim()) return;
@@ -568,6 +673,18 @@ function CompanyDossier({ company, contacts = [], onClose, onContactsChanged }) 
               }}
             >{uploading ? "Uploading…" : "📎 Upload File"}</button>
         </div>
+
+        {/* Outreach Conversations */}
+        {outreachThreads.length > 0 && (
+          <div style={{ padding:"0 24px" }}>
+            <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, padding:"14px 0 8px" }}>
+              Outreach Conversations ({outreachThreads.length})
+            </div>
+            {outreachThreads.map((thread, i) => (
+              <OutreachThread key={thread[0]?.thread_id || i} thread={thread} contacts={threadContacts} />
+            ))}
+          </div>
+        )}
 
         {/* Dossier Feed */}
         <div style={{ flex:1, overflow:"auto", padding:"0 24px 24px" }}>
@@ -1040,6 +1157,8 @@ export default function ArteqCRM() {
                     enrich_contact:    { icon:"✉", bg:"#EDE9FE", color:"#6D28D9", label:"Enriched" },
                     outreach_draft:    { icon:"📝", bg:"#DBEAFE", color:"#1D4ED8", label:"Draft" },
                     outreach_sent:     { icon:"📨", bg:"#D1FAE5", color:"#065F46", label:"Sent" },
+                    outreach_reply:    { icon:"💬", bg:"#D1FAE5", color:"#065F46", label:"Auto-Reply" },
+                    inbound_reply:     { icon:"📩", bg:"#FEF3C7", color:"#92400E", label:"Reply Received" },
                   };
                   // Group by date
                   const groups = {};

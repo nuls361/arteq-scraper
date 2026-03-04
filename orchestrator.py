@@ -634,13 +634,120 @@ def phase_enrichment(config):
 
 
 # ═══════════════════════════════════════════════════════════
-# PHASE 4: AUTO-OUTREACH
+# PHASE 4: AUTO-OUTREACH (with persona + learning)
 # ═══════════════════════════════════════════════════════════
 
+def get_persona(config):
+    """Load outreach persona from config."""
+    try:
+        return json.loads(config.get("outreach_persona", "{}"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def get_successful_examples():
+    """Load outreach emails that got positive replies — used as few-shot examples."""
+    examples = supabase_request("GET", "outreach", params={
+        "select": "subject,body_html,company_id,contact_id",
+        "got_reply": "eq.true",
+        "reply_sentiment": "in.(positive,interested)",
+        "direction": "eq.outbound",
+        "order": "created_at.desc",
+        "limit": "5",
+    })
+    if not examples:
+        return ""
+
+    example_text = "\n\n--- BEISPIEL-EMAILS DIE FUNKTIONIERT HABEN ---\n"
+    for i, ex in enumerate(examples, 1):
+        # Strip HTML tags for a cleaner example
+        body = re.sub(r"<[^>]+>", "", ex.get("body_html", ""))
+        body = re.sub(r"\s+", " ", body).strip()
+        example_text += f"\nBeispiel {i}:\nBetreff: {ex.get('subject', '')}\nText: {body[:300]}\n"
+
+    example_text += "\n--- ENDE BEISPIELE ---\nOrientiere dich am Stil dieser erfolgreichen Emails.\n"
+    return example_text
+
+
+def build_outreach_prompt(persona, dm, co, intel, examples_text):
+    """Build the outreach prompt with persona + learning."""
+    # Build company context
+    context = f"Company: {co['name']}\n"
+    context += f"Industry: {co.get('industry', '?')} | Funding: {co.get('funding_stage', '?')}\n"
+    context += f"Contact: {dm['name']} ({dm.get('title', '?')})\n"
+
+    if intel["roles"]:
+        context += "Aktive Roles: " + ", ".join(
+            f"{r['title']} ({r.get('engagement_type', '?')})" for r in intel["roles"][:3]
+        ) + "\n"
+
+    if intel["signals"]:
+        context += "Signals: " + ", ".join(
+            f"{s.get('type')}: {s.get('title', '')[:40]}" for s in intel["signals"][:3]
+        ) + "\n"
+
+    # Persona rules
+    dos = "\n".join(f"  - {d}" for d in persona.get("dos", []))
+    donts = "\n".join(f"  - {d}" for d in persona.get("donts", []))
+    value_props = "\n".join(f"  - {v}" for v in persona.get("value_props", []))
+
+    first_name = dm["name"].split()[0] if dm.get("name") else "?"
+    signature = persona.get("signature", "Beste Grüße,\nNiels")
+
+    prompt = f"""Du bist {persona.get('name', 'Niels')} von {persona.get('company', 'Arteq')}.
+{persona.get('role', 'Fractional & Interim Executive Vermittlung im DACH-Raum')}.
+
+Tonalität: {persona.get('tone', 'Locker-professionell')}
+Sprache: {persona.get('language', 'Deutsch, Du-Form')}
+
+DO:
+{dos}
+
+DON'T:
+{donts}
+
+Value Props die du einsetzen kannst:
+{value_props}
+
+Kontext über die Company:
+{context}
+{examples_text}
+Schreibe eine Outreach-Email an {dm['name']} ({dm.get('title', '')}) bei {co['name']}.
+Begrüßung: "Hi {first_name}"
+Unterschrift: {signature}
+
+Antworte NUR in validem JSON:
+{{"subject": "Betreff", "body_html": "<p>Email HTML Body</p>"}}"""
+
+    return prompt
+
+
+def send_outreach_email(from_email, to_email, cc_email, subject, body_html):
+    """Send email via Resend, return (resend_id, message_id) or (None, None)."""
+    try:
+        import resend
+        resend.api_key = RESEND_API_KEY
+
+        send_params = {
+            "from": f"Niels <{from_email}>",
+            "to": [to_email],
+            "subject": subject,
+            "html": body_html,
+        }
+        if cc_email and cc_email != to_email:
+            send_params["cc"] = [cc_email]
+
+        result = resend.Emails.send(send_params)
+        return result.get("id"), None
+    except Exception as e:
+        logger.error(f"  Send error: {e}")
+        return None, None
+
+
 def phase_outreach(config):
-    """Generate and optionally send personalized outreach emails."""
+    """Generate and send personalized outreach emails with persona + learning."""
     logger.info("\n📨 PHASE 4: AUTO-OUTREACH")
-    results = {"drafts_created": 0, "emails_sent": 0}
+    results = {"drafts_created": 0, "emails_sent": 0, "replies_processed": 0, "followups_sent": 0}
 
     outreach_mode = config.get("outreach_mode", "draft")
     daily_limit = int(config.get("outreach_daily_limit", "3"))
@@ -655,10 +762,23 @@ def phase_outreach(config):
         logger.info("  No ANTHROPIC_API_KEY — skipping")
         return results
 
-    # How many outreach emails already sent today?
+    # Load persona and successful examples for learning
+    persona = get_persona(config)
+    examples_text = get_successful_examples()
+
+    if examples_text:
+        logger.info("  📚 Loaded successful email examples for learning")
+
+    # ── 4a: Process new replies & auto-respond ──
+    results["replies_processed"], results["followups_sent"] = phase_reply_handler(
+        config, persona, from_email, cc_email
+    )
+
+    # ── 4b: New outreach to fresh companies ──
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     today_outreach = supabase_request("GET", "outreach", params={
         "select": "id",
+        "direction": "eq.outbound",
         "created_at": f"gte.{today}T00:00:00Z",
         "limit": "100",
     })
@@ -670,10 +790,7 @@ def phase_outreach(config):
 
     remaining = daily_limit - already_sent
 
-    # Find outreach-ready companies:
-    # - status in (active, prospect) with composite_score >= 65
-    # - has contact with email
-    # - no existing outreach
+    # Find outreach-ready companies
     companies = supabase_request("GET", "company", params={
         "select": "id,name,status,composite_score,outreach_priority,industry,funding_stage,domain",
         "status": "in.(active,prospect)",
@@ -685,14 +802,12 @@ def phase_outreach(config):
 
     outreach_candidates = []
     for co in (companies or []):
-        # Check no existing outreach
         existing = supabase_request("GET", "outreach", params={
             "company_id": f"eq.{co['id']}", "select": "id", "limit": "1",
         })
         if existing and len(existing) > 0:
             continue
 
-        # Find contact with email
         links = supabase_request("GET", "company_contact", params={
             "company_id": f"eq.{co['id']}",
             "is_decision_maker": "eq.true",
@@ -721,39 +836,7 @@ def phase_outreach(config):
         dm = cand["dm"]
         intel = gather_company_intel(co["id"])
 
-        # Build context for Claude
-        context = f"Company: {co['name']}\n"
-        context += f"Industry: {co.get('industry', '?')} | Funding: {co.get('funding_stage', '?')}\n"
-        context += f"Contact: {dm['name']} ({dm.get('title', '?')})\n"
-
-        if intel["roles"]:
-            context += f"Aktive Roles: " + ", ".join(
-                f"{r['title']} ({r.get('engagement_type', '?')})" for r in intel["roles"][:3]
-            ) + "\n"
-
-        if intel["signals"]:
-            context += f"Signals: " + ", ".join(
-                f"{s.get('type')}: {s.get('title', '')[:40]}" for s in intel["signals"][:3]
-            ) + "\n"
-
-        prompt = f"""Schreibe eine kurze, personalisierte Outreach-Email für Niels von Arteq an {dm['name']} ({dm.get('title', '')}) bei {co['name']}.
-
-Arteq vermittelt Fractional & Interim Executives im DACH-Raum (CFO, CTO, COO, CHRO etc.).
-
-Kontext über die Company:
-{context}
-
-Regeln:
-- Deutsch, Du-Form, professionell aber nicht steif
-- Beziehe dich auf einen konkreten Anlass (z.B. offene Position, Funding, Wachstum)
-- Maximal 5-6 Sätze
-- Kein "Sehr geehrte/r", sondern "Hi {dm['name'].split()[0]}"
-- Call-to-Action: kurzes 15-Min Gespräch vorschlagen
-- Unterschrift: Niels, Arteq
-
-Antworte in JSON:
-{{"subject": "Betreff", "body_html": "<p>Email HTML Body</p>"}}"""
-
+        prompt = build_outreach_prompt(persona, dm, co, intel, examples_text)
         text = claude_request(prompt, max_tokens=800)
         if not text:
             continue
@@ -770,37 +853,25 @@ Antworte in JSON:
         if not body_html:
             continue
 
-        # Create outreach record
         outreach_status = "draft"
         sent_at = None
         resend_id = None
 
-        # If auto mode + Resend configured, send immediately
         if outreach_mode == "auto" and RESEND_API_KEY:
-            try:
-                import resend
-                resend.api_key = RESEND_API_KEY
-
-                result = resend.Emails.send({
-                    "from": f"Niels <{from_email}>",
-                    "to": [dm["email"]],
-                    "cc": [cc_email] if cc_email != dm["email"] else [],
-                    "subject": subject,
-                    "html": body_html,
-                })
+            resend_id, _ = send_outreach_email(from_email, dm["email"], cc_email, subject, body_html)
+            if resend_id:
                 outreach_status = "sent"
                 sent_at = datetime.now(timezone.utc).isoformat()
-                resend_id = result.get("id")
                 results["emails_sent"] += 1
                 logger.info(f"  📨 SENT: {subject} → {dm['email']}")
-            except Exception as e:
-                logger.error(f"  Send error: {e}")
+            else:
                 outreach_status = "draft"
         else:
             results["drafts_created"] += 1
             logger.info(f"  📝 DRAFT: {subject} → {dm['email']}")
 
-        supabase_request("POST", "outreach", data={
+        # Create outreach record with thread tracking
+        outreach_record = supabase_request("POST", "outreach", data={
             "company_id": co["id"],
             "contact_id": dm["id"],
             "subject": subject,
@@ -808,7 +879,14 @@ Antworte in JSON:
             "status": outreach_status,
             "sent_at": sent_at,
             "resend_email_id": resend_id,
+            "direction": "outbound",
+            "from_email": from_email,
         })
+
+        # Set thread_id = own id for initial outreach
+        if outreach_record and len(outreach_record) > 0:
+            oid = outreach_record[0]["id"]
+            supabase_request("PATCH", f"outreach?id=eq.{oid}", data={"thread_id": oid})
 
         log_decision("outreach_" + outreach_status, "company", co["id"],
                       f"{'Sent' if outreach_status == 'sent' else 'Draft'} outreach to {dm['name']} ({dm.get('title', '')}) — {subject}",
@@ -819,8 +897,230 @@ Antworte in JSON:
 
         time.sleep(1)
 
-    logger.info(f"  Drafts: {results['drafts_created']}, Sent: {results['emails_sent']}")
+    logger.info(f"  Drafts: {results['drafts_created']}, Sent: {results['emails_sent']}, "
+                f"Replies: {results['replies_processed']}, Follow-ups: {results['followups_sent']}")
     return results
+
+
+# ═══════════════════════════════════════════════════════════
+# PHASE 4b: REPLY HANDLER (auto-respond to inbound replies)
+# ═══════════════════════════════════════════════════════════
+
+def phase_reply_handler(config, persona, from_email, cc_email):
+    """Process new inbound replies and auto-respond."""
+    replies_processed = 0
+    followups_sent = 0
+
+    max_followups = int(config.get("outreach_max_followups", "3"))
+    outreach_mode = config.get("outreach_mode", "draft")
+
+    # Load reply style config
+    try:
+        reply_style = json.loads(config.get("outreach_reply_style", "{}"))
+    except json.JSONDecodeError:
+        reply_style = {}
+
+    # Find unprocessed inbound replies (status = 'replied' means we haven't responded yet)
+    new_replies = supabase_request("GET", "outreach", params={
+        "select": "id,thread_id,company_id,contact_id,subject,body_html,raw_text,from_email,created_at",
+        "direction": "eq.inbound",
+        "status": "eq.replied",
+        "order": "created_at.asc",
+        "limit": "20",
+    })
+
+    if not new_replies:
+        return 0, 0
+
+    logger.info(f"  💬 {len(new_replies)} new replies to process")
+
+    for reply in new_replies:
+        thread_id = reply.get("thread_id")
+        company_id = reply.get("company_id")
+        contact_id = reply.get("contact_id")
+
+        if not thread_id or not company_id:
+            continue
+
+        # Load full conversation thread
+        thread = supabase_request("GET", "outreach", params={
+            "thread_id": f"eq.{thread_id}",
+            "select": "id,direction,subject,body_html,raw_text,created_at,status",
+            "order": "created_at.asc",
+        })
+
+        # Count our outbound messages in this thread
+        our_messages = [t for t in (thread or []) if t.get("direction") == "outbound"]
+        if len(our_messages) >= max_followups:
+            logger.info(f"  Max follow-ups ({max_followups}) reached for thread {thread_id}")
+            supabase_request("PATCH", f"outreach?id=eq.{reply['id']}", data={"status": "closed"})
+            continue
+
+        # Classify reply sentiment
+        reply_text = reply.get("raw_text") or re.sub(r"<[^>]+>", "", reply.get("body_html", ""))
+        sentiment = classify_reply_sentiment(reply_text)
+        supabase_request("PATCH", f"outreach?id=eq.{reply['id']}", data={"reply_sentiment": sentiment})
+
+        # Mark the original outbound as got_reply
+        original = supabase_request("GET", "outreach", params={
+            "thread_id": f"eq.{thread_id}",
+            "direction": "eq.outbound",
+            "order": "created_at.asc",
+            "limit": "1",
+            "select": "id",
+        })
+        if original:
+            supabase_request("PATCH", f"outreach?id=eq.{original[0]['id']}", data={
+                "got_reply": True,
+                "reply_sentiment": sentiment,
+            })
+
+        replies_processed += 1
+
+        # Get company + contact info for context
+        co = supabase_request("GET", "company", params={
+            "id": f"eq.{company_id}",
+            "select": "id,name,industry,funding_stage",
+            "limit": "1",
+        })
+        contact = supabase_request("GET", "contact", params={
+            "id": f"eq.{contact_id}",
+            "select": "id,name,title,email",
+            "limit": "1",
+        })
+
+        if not co or not contact:
+            continue
+
+        company = co[0]
+        dm = contact[0]
+
+        # Build conversation history for Claude
+        conv_history = ""
+        for msg in (thread or []):
+            sender = "Niels (Arteq)" if msg.get("direction") == "outbound" else dm.get("name", "Kontakt")
+            body = msg.get("raw_text") or re.sub(r"<[^>]+>", "", msg.get("body_html", ""))
+            body = re.sub(r"\s+", " ", body).strip()
+            conv_history += f"\n[{sender}]: {body[:500]}\n"
+
+        reply_rules = "\n".join(f"  - {r}" for r in reply_style.get("rules", []))
+        reply_signature = persona.get("signature", "Beste Grüße,\nNiels")
+        reply_tone = reply_style.get("tone", persona.get("tone", "Persönlich und auf Augenhöhe"))
+        reply_lang = persona.get("language", "Deutsch, Du-Form")
+        reply_name = persona.get("name", "Niels")
+        reply_company = persona.get("company", "Arteq")
+        dm_name = dm.get("name", "?")
+        dm_title = dm.get("title", "?")
+        co_name = company.get("name", "?")
+        sentiment_hint = ""
+        if sentiment in ("positive", "interested"):
+            sentiment_hint = "Die Person scheint interessiert — schlage einen konkreten Termin vor."
+        elif sentiment in ("negative", "not_interested"):
+            sentiment_hint = "Die Person scheint nicht interessiert — akzeptiere freundlich, halte die Tür offen für die Zukunft."
+
+        prompt = f"""Du bist {reply_name} von {reply_company}.
+Tonalität: {reply_tone}
+Sprache: {reply_lang}
+
+Regeln für Replies:
+{reply_rules}
+
+Bisherige Konversation mit {dm_name} ({dm_title}) von {co_name}:
+{conv_history}
+
+Sentiment der letzten Antwort: {sentiment}
+
+{sentiment_hint}
+
+Schreibe die nächste Antwort. Kurz (2-4 Sätze).
+Unterschrift: {reply_signature}
+
+Antworte NUR in validem JSON:
+{{"subject": "Re: ...", "body_html": "<p>Antwort HTML</p>"}}"""
+
+        text = claude_request(prompt, max_tokens=600)
+        if not text:
+            continue
+
+        try:
+            followup_data = json.loads(clean_json_response(text))
+        except json.JSONDecodeError:
+            logger.error(f"  JSON parse error for reply to {dm.get('name', '?')}")
+            continue
+
+        subject = followup_data.get("subject", f"Re: {reply.get('subject', '')}")
+        body_html = followup_data.get("body_html", "")
+
+        if not body_html:
+            continue
+
+        followup_status = "draft"
+        sent_at = None
+        resend_id = None
+
+        if outreach_mode == "auto" and RESEND_API_KEY and dm.get("email"):
+            resend_id, _ = send_outreach_email(from_email, dm["email"], cc_email, subject, body_html)
+            if resend_id:
+                followup_status = "sent"
+                sent_at = datetime.now(timezone.utc).isoformat()
+                followups_sent += 1
+                logger.info(f"  💬 REPLY SENT: {subject} → {dm['email']}")
+            else:
+                followup_status = "draft"
+
+        # Save follow-up
+        supabase_request("POST", "outreach", data={
+            "company_id": company_id,
+            "contact_id": contact_id,
+            "subject": subject,
+            "body_html": body_html,
+            "status": followup_status,
+            "sent_at": sent_at,
+            "resend_email_id": resend_id,
+            "direction": "outbound",
+            "thread_id": thread_id,
+            "in_reply_to": reply["id"],
+            "from_email": from_email,
+        })
+
+        # Update original reply status to indicate we've responded
+        supabase_request("PATCH", f"outreach?id=eq.{reply['id']}", data={"status": "answered"})
+
+        log_decision("outreach_reply", "company", company_id,
+                     f"Auto-reply to {dm.get('name', '?')} (sentiment: {sentiment}) — {subject}",
+                     {"sentiment": sentiment, "thread_id": thread_id})
+        log_dossier(company_id, "outreach",
+                    f"Reply sent: {subject}",
+                    f"Auto-reply to {dm.get('name', '?')} (sentiment: {sentiment})\n\n{body_html[:500]}")
+
+        time.sleep(1)
+
+    return replies_processed, followups_sent
+
+
+def classify_reply_sentiment(text):
+    """Use Claude to classify reply sentiment."""
+    if not text or not ANTHROPIC_KEY:
+        return "neutral"
+
+    prompt = f"""Klassifiziere diese Email-Antwort in eine Kategorie:
+- "interested" — Person zeigt Interesse, will mehr wissen, ist offen für ein Gespräch
+- "positive" — Freundlich, offen, aber noch kein konkretes Interesse
+- "neutral" — Unklar, Rückfragen, weder positiv noch negativ
+- "not_interested" — Höfliche Absage, kein Bedarf momentan
+- "negative" — Klare Absage, genervt, will nicht kontaktiert werden
+
+Email-Antwort:
+{text[:500]}
+
+Antworte NUR mit einem Wort: interested, positive, neutral, not_interested, oder negative"""
+
+    result = claude_request(prompt, max_tokens=20)
+    if result:
+        result = result.strip().lower().strip('"').strip("'")
+        if result in ("interested", "positive", "neutral", "not_interested", "negative"):
+            return result
+    return "neutral"
 
 
 # ═══════════════════════════════════════════════════════════
@@ -996,7 +1296,8 @@ def main():
     print(f"  Hygiene: {h.get('roles_expired', 0)} expired, {h.get('contacts_deduped', 0)} deduped")
     print(f"  Scoring: {s.get('evaluated', 0)} evaluated, {s.get('promoted', 0)} promoted, {s.get('downgraded', 0)} downgraded")
     print(f"  Enrichment: {e.get('enriched', 0)} contacts ({e.get('credits_used', 0)} credits)")
-    print(f"  Outreach: {o.get('drafts_created', 0)} drafts, {o.get('emails_sent', 0)} sent")
+    print(f"  Outreach: {o.get('drafts_created', 0)} drafts, {o.get('emails_sent', 0)} sent, "
+          f"{o.get('replies_processed', 0)} replies, {o.get('followups_sent', 0)} follow-ups")
     print(f"{'='*80}\n")
 
 
