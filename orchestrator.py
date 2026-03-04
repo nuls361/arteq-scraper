@@ -956,6 +956,16 @@ def main():
         print("  ⚠️ No SUPABASE_URL — cannot run orchestrator")
         return
 
+    # Phase 0: Pre-flight healthcheck
+    logger.info("\n🏥 PHASE 0: HEALTHCHECK")
+    try:
+        from healthcheck import run_healthcheck
+        _checks, healthy = run_healthcheck()
+        if not healthy:
+            logger.warning("  Healthcheck found issues — continuing with caution")
+    except Exception as e:
+        logger.warning(f"  Healthcheck error: {e} — continuing anyway")
+
     config = get_config()
     logger.info(f"  Outreach mode: {config.get('outreach_mode', 'draft')}")
 
