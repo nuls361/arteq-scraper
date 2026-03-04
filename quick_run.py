@@ -956,9 +956,9 @@ APOLLO_API_KEY = os.getenv("APOLLO_API_KEY", "")
 
 
 def search_apollo(company_name, titles, company_domain=None):
-    """Search Apollo People API (FREE — no credits consumed) for decision maker."""
+    """Search Apollo People API (FREE — no credits consumed) for decision makers (up to 3)."""
     if not APOLLO_API_KEY or not company_name:
-        return None
+        return []
 
     # Accept string or list
     if isinstance(titles, str):
@@ -971,7 +971,7 @@ def search_apollo(company_name, titles, company_domain=None):
             "person_titles": titles,
             "q_organization_name": company_name,
             "page": 1,
-            "per_page": 3,
+            "per_page": 5,
         }
         # If we have a domain, use it — much more accurate
         if company_domain:
@@ -990,37 +990,41 @@ def search_apollo(company_name, titles, company_domain=None):
 
         if resp.status_code != 200:
             logger.debug(f"  Apollo Search returned {resp.status_code}: {resp.text[:200]}")
-            return None
+            return []
 
         data = resp.json()
         people = data.get("people", [])
 
         if not people:
-            return None
+            return []
 
-        # Take the best match
-        person = people[0]
-        name = person.get("name", "")
-        linkedin = person.get("linkedin_url", "")
-        found_title = person.get("title", titles[0] if titles else "Unknown")
-        apollo_id = person.get("id", "")
+        # Return up to 3 valid persons
+        results = []
+        for person in people[:5]:
+            name = person.get("name", "")
+            if not name or len(name) < 2:
+                continue
+            linkedin = person.get("linkedin_url", "")
+            found_title = person.get("title", titles[0] if titles else "Unknown")
+            apollo_id = person.get("id", "")
 
-        if not name or len(name) < 2:
-            return None
+            logger.info(f"  → Apollo found: {name} ({found_title}) — {linkedin or 'no LinkedIn'}")
 
-        logger.info(f"  → Apollo found: {name} ({found_title}) — {linkedin or 'no LinkedIn'}")
+            results.append({
+                "name": name,
+                "title": found_title,
+                "linkedin_url": linkedin or "",
+                "apollo_id": apollo_id,
+                "source": "apollo_search",
+            })
+            if len(results) >= 3:
+                break
 
-        return {
-            "name": name,
-            "title": found_title,
-            "linkedin_url": linkedin or "",
-            "apollo_id": apollo_id,
-            "source": "apollo_search",
-        }
+        return results
 
     except Exception as e:
         logger.debug(f"  Apollo search error: {e}")
-        return None
+        return []
 
 
 def enrich_apollo(apollo_id=None, name=None, domain=None):
@@ -1200,7 +1204,8 @@ def guess_dm_titles(job):
 
 
 def find_decision_makers(jobs):
-    """Find decision makers: Apollo for Hot (search + enrich), Apollo search for Warm, DDG fallback."""
+    """Find decision makers: Apollo for Hot (search + enrich), Apollo search for Warm, DDG fallback.
+    Stores up to 3 contacts per company. Primary DM (first match) gets enriched for Hot leads."""
     candidates = [
         j for j in jobs
         if not (j.get("ai_analysis") or {}).get("is_agency")
@@ -1236,43 +1241,51 @@ def find_decision_makers(jobs):
 
         logger.info(f"  Searching: {dm_titles} at {job['company']}" + (" [HOT → will enrich]" if is_hot and apollo_on else ""))
 
-        dm = None
+        dm_list = []
 
-        # ── Step 1: Apollo People Search (free) — all titles at once ──
+        # ── Step 1: Apollo People Search (free) — returns up to 3 persons ──
         if apollo_on:
-            dm = search_apollo(job["company"], dm_titles, company_domain)
+            dm_list = search_apollo(job["company"], dm_titles, company_domain)
 
         # ── Step 2: DuckDuckGo fallback — try first two titles ──
-        if not dm:
+        if not dm_list:
             for t in dm_titles[:2]:
                 dm = search_linkedin_ddg(job["company"], t)
                 if dm:
+                    dm_list = [dm]
                     break
 
-        if not dm:
+        if not dm_list:
             time.sleep(1)
             continue
 
-        # ── Step 3: Apollo Enrichment for Hot leads (costs 1 credit) ──
+        # Primary DM = first (best) match
+        primary_dm = dm_list[0]
+
+        # ── Step 3: Apollo Enrichment for Hot leads (costs 1 credit) — primary DM only ──
         if is_hot and apollo_on:
             enrichment = enrich_apollo(
-                apollo_id=dm.get("apollo_id"),
-                name=dm.get("name"),
+                apollo_id=primary_dm.get("apollo_id"),
+                name=primary_dm.get("name"),
                 domain=company_domain,
             )
             if enrichment:
-                dm["email"] = enrichment.get("email")
-                dm["email_status"] = enrichment.get("email_status")
-                dm["phone"] = enrichment.get("phone")
+                primary_dm["email"] = enrichment.get("email")
+                primary_dm["email_status"] = enrichment.get("email_status")
+                primary_dm["phone"] = enrichment.get("phone")
                 credits_used += 1
 
         # ── Apply to all jobs from same company ──
-        job["decision_maker"] = dm
+        # decision_maker = primary DM (backward compat), decision_makers = full list
+        job["decision_maker"] = primary_dm
+        job["decision_makers"] = dm_list
         for j2 in jobs:
             if j2["company"].lower().strip() == job["company"].lower().strip():
-                j2["decision_maker"] = dm
+                j2["decision_maker"] = primary_dm
+                j2["decision_makers"] = dm_list
         found += 1
 
+        logger.info(f"  → {len(dm_list)} contact(s) found for {job['company']}")
         time.sleep(1.5 if apollo_on else 2)
 
     logger.info(f"Decision makers: {found}/{len(search_queue)} found | Apollo credits used: {credits_used}")
@@ -1503,39 +1516,77 @@ def write_to_supabase(jobs):
         if result:
             roles_created += 1
 
-        # ── Step 3: Upsert Decision Maker Contact ──────────────
-        dm = job.get("decision_maker")
-        if dm and company_id:
-            # Check if contact already exists (by linkedin_url)
-            existing_contact = supabase_request("GET", "contact", params={
-                "linkedin_url": f"eq.{dm['linkedin_url']}",
-                "select": "id",
-                "limit": "1",
-            })
+        # ── Step 3: Upsert Decision Maker Contacts (up to 3) ──────────────
+        dm_list = job.get("decision_makers") or []
+        # Backward compat: if only single DM exists
+        if not dm_list and job.get("decision_maker"):
+            dm_list = [job["decision_maker"]]
 
-            if not (existing_contact and len(existing_contact) > 0):
-                contact_data = {
-                    "name": dm["name"],
-                    "title": dm.get("title", ""),
-                    "linkedin_url": dm["linkedin_url"],
-                    "email": dm.get("email"),
-                    "email_status": dm.get("email_status"),
-                    "phone": dm.get("phone"),
-                    "source": dm.get("source", "apollo_search"),
-                }
-                # Remove None values
-                contact_data = {k: v for k, v in contact_data.items() if v is not None}
+        for idx, dm in enumerate(dm_list):
+            if not dm or not company_id:
+                continue
+            is_primary = (idx == 0)
 
+            # Check if contact already exists (by linkedin_url or name+title fallback)
+            existing_contact = None
+            if dm.get("linkedin_url"):
+                existing_contact = supabase_request("GET", "contact", params={
+                    "linkedin_url": f"eq.{dm['linkedin_url']}",
+                    "select": "id",
+                    "limit": "1",
+                })
+
+            if not existing_contact or len(existing_contact) == 0:
+                # Try name match as fallback (same name = likely same person)
+                if dm.get("name"):
+                    existing_contact = supabase_request("GET", "contact", params={
+                        "name": f"eq.{dm['name']}",
+                        "select": "id",
+                        "limit": "1",
+                    })
+
+            contact_data = {
+                "name": dm["name"],
+                "title": dm.get("title", ""),
+                "linkedin_url": dm.get("linkedin_url", ""),
+                "email": dm.get("email"),
+                "email_status": dm.get("email_status"),
+                "phone": dm.get("phone"),
+                "source": dm.get("source", "apollo_search"),
+            }
+            contact_data = {k: v for k, v in contact_data.items() if v is not None}
+
+            if existing_contact and len(existing_contact) > 0:
+                # ── UPDATE existing contact with new data (fill gaps, don't overwrite) ──
+                contact_id = existing_contact[0]["id"]
+                update_data = {}
+                for field in ("email", "email_status", "phone", "linkedin_url", "title"):
+                    if dm.get(field) and dm[field]:
+                        update_data[field] = dm[field]
+                if update_data:
+                    supabase_request("PATCH", f"contact?id=eq.{contact_id}", data=update_data)
+            else:
+                # ── INSERT new contact ──
                 contact_result = supabase_request("POST", "contact", data=contact_data)
                 if contact_result and len(contact_result) > 0:
                     contact_id = contact_result[0]["id"]
-                    # Link contact to company
-                    supabase_request("POST", "company_contact", data={
-                        "company_id": company_id,
-                        "contact_id": contact_id,
-                        "role_at_company": dm.get("title", ""),
-                        "is_decision_maker": True,
-                    })
+                else:
+                    continue
+
+            # ── Link contact to company (if not already linked) ──
+            existing_link = supabase_request("GET", "company_contact", params={
+                "company_id": f"eq.{company_id}",
+                "contact_id": f"eq.{contact_id}",
+                "select": "id",
+                "limit": "1",
+            })
+            if not (existing_link and len(existing_link) > 0):
+                supabase_request("POST", "company_contact", data={
+                    "company_id": company_id,
+                    "contact_id": contact_id,
+                    "role_at_company": dm.get("title", ""),
+                    "is_decision_maker": is_primary,
+                })
 
     logger.info(f"  Supabase: {companies_created} new companies, {companies_updated} updated, {roles_created} roles created, {roles_skipped} roles skipped (dupes)")
     return True

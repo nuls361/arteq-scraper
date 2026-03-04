@@ -84,7 +84,7 @@ function ColHead({ children, width, align, sk, sort, onSort }) {
   );
 }
 
-function DetailDrawer({ role, company, dm, onClose }) {
+function DetailDrawer({ role, company, dm, allDms = [], onClose }) {
   if (!role) return null;
   const fields = [
     ["Score", role.final_score ?? role.rule_score ?? "—"],
@@ -135,39 +135,46 @@ function DetailDrawer({ role, company, dm, onClose }) {
             </div>
           ))}
 
-          {/* Decision Maker */}
-          {dm && (
-            <div style={{ marginTop:16, background:"#F7F7F8", borderRadius:8, padding:"14px 16px" }}>
-              <div style={{ fontSize:11, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.4, marginBottom:8 }}>Decision Maker</div>
-              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                <div style={{ width:36, height:36, borderRadius:8, background:"#EBEBED", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700, color:"#6B6F76" }}>
-                  {dm.name?.charAt(0) || "?"}
-                </div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:14, fontWeight:600, color:"#1A1A1A" }}>{dm.name}</div>
-                  <div style={{ fontSize:12, color:"#6B6F76" }}>{dm.title}</div>
-                </div>
-                {dm.linkedin_url && (
-                  <a href={dm.linkedin_url} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{
-                    padding:"5px 10px", borderRadius:5, background:"#0A66C2", color:"#fff",
-                    fontSize:11, fontWeight:600, textDecoration:"none", whiteSpace:"nowrap",
-                  }}>LinkedIn ↗</a>
-                )}
-              </div>
-              {(dm.email || dm.phone) && (
-                <div style={{ marginTop:10, display:"flex", gap:8, flexWrap:"wrap" }}>
-                  {dm.email && (
-                    <a href={`mailto:${dm.email}`} style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"4px 10px", borderRadius:5, background:"#fff", border:"1px solid #EBEBED", fontSize:12, color:"#1A1A1A", textDecoration:"none", fontWeight:500 }}>
-                      ✉ {dm.email}
-                    </a>
+          {/* Contacts */}
+          {(allDms.length > 0 || dm) && (
+            <div style={{ marginTop:16 }}>
+              <div style={{ fontSize:11, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.4, marginBottom:8 }}>Contacts ({allDms.length || 1})</div>
+              {(allDms.length > 0 ? allDms : [dm]).filter(Boolean).map((person, idx) => (
+                <div key={person.id || idx} style={{ background:"#F7F7F8", borderRadius:8, padding:"12px 14px", marginBottom:6 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                    <div style={{ width:32, height:32, borderRadius:7, background: person.is_decision_maker || idx === 0 ? "#1A1A1A" : "#EBEBED", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:700, color: person.is_decision_maker || idx === 0 ? "#fff" : "#6B6F76" }}>
+                      {person.name?.charAt(0) || "?"}
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+                        <span style={{ fontSize:13, fontWeight:600, color:"#1A1A1A" }}>{person.name}</span>
+                        {(person.is_decision_maker || idx === 0) && <span style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:3, background:"#FDECEC", color:"#C13030" }}>DM</span>}
+                      </div>
+                      <div style={{ fontSize:11, color:"#6B6F76" }}>{person.role_at_company || person.title}</div>
+                    </div>
+                    {person.linkedin_url && (
+                      <a href={person.linkedin_url} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{
+                        padding:"4px 8px", borderRadius:5, background:"#0A66C2", color:"#fff",
+                        fontSize:10, fontWeight:600, textDecoration:"none", whiteSpace:"nowrap",
+                      }}>LinkedIn ↗</a>
+                    )}
+                  </div>
+                  {(person.email || person.phone) && (
+                    <div style={{ marginTop:8, display:"flex", gap:6, flexWrap:"wrap" }}>
+                      {person.email && (
+                        <a href={`mailto:${person.email}`} style={{ display:"inline-flex", alignItems:"center", gap:3, padding:"3px 8px", borderRadius:4, background:"#fff", border:"1px solid #EBEBED", fontSize:11, color:"#1A1A1A", textDecoration:"none", fontWeight:500 }}>
+                          ✉ {person.email}
+                        </a>
+                      )}
+                      {person.phone && (
+                        <span style={{ display:"inline-flex", alignItems:"center", gap:3, padding:"3px 8px", borderRadius:4, background:"#fff", border:"1px solid #EBEBED", fontSize:11, color:"#1A1A1A", fontWeight:500 }}>
+                          ☎ {person.phone}
+                        </span>
+                      )}
+                    </div>
                   )}
-                  {dm.phone && (
-                    <span style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"4px 10px", borderRadius:5, background:"#fff", border:"1px solid #EBEBED", fontSize:12, color:"#1A1A1A", fontWeight:500 }}>
-                      ☎ {dm.phone}
-                    </span>
-                  )}
                 </div>
-              )}
+              ))}
             </div>
           )}
 
@@ -261,7 +268,7 @@ const ENTRY_TYPE = {
   file:         { label: "File",         icon: "📎", bg: "#F0FDF4", color: "#15803D" },
 };
 
-function CompanyDossier({ company, onClose }) {
+function CompanyDossier({ company, contacts = [], onClose, onContactsChanged }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [noteType, setNoteType] = useState("meeting_note");
@@ -270,6 +277,9 @@ function CompanyDossier({ company, onClose }) {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
+  const [showAddContact, setShowAddContact] = useState(false);
+  const [newContact, setNewContact] = useState({ name: "", title: "", linkedin_url: "", email: "", phone: "" });
+  const [savingContact, setSavingContact] = useState(false);
 
   const loadEntries = useCallback(async () => {
     if (!company) return;
@@ -343,6 +353,36 @@ function CompanyDossier({ company, onClose }) {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  const handleAddContact = async () => {
+    if (!newContact.name.trim()) return;
+    setSavingContact(true);
+    try {
+      const contactRes = await supaPost("contact", {
+        name: newContact.name.trim(),
+        title: newContact.title.trim() || null,
+        linkedin_url: newContact.linkedin_url.trim() || null,
+        email: newContact.email.trim() || null,
+        phone: newContact.phone.trim() || null,
+        source: "manual",
+      });
+      if (contactRes && contactRes[0]) {
+        await supaPost("company_contact", {
+          company_id: company.id,
+          contact_id: contactRes[0].id,
+          role_at_company: newContact.title.trim() || "",
+          is_decision_maker: contacts.length === 0,
+        });
+      }
+      setNewContact({ name: "", title: "", linkedin_url: "", email: "", phone: "" });
+      setShowAddContact(false);
+      if (onContactsChanged) onContactsChanged();
+    } catch (e) {
+      console.error("Add contact error:", e);
+      alert("Contact konnte nicht gespeichert werden: " + e.message);
+    }
+    setSavingContact(false);
+  };
+
   if (!company) return null;
 
   const st = { lead:{bg:"#EDE9FE",color:"#6D28D9"}, prospect:{bg:"#DBEAFE",color:"#1D4ED8"}, active:{bg:"#D1FAE5",color:"#065F46"}, client:{bg:"#D1FAE5",color:"#047857"}, churned:{bg:"#FDECEC",color:"#C13030"} };
@@ -399,6 +439,62 @@ function CompanyDossier({ company, onClose }) {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* ── Contacts Section ── */}
+        <div style={{ padding:"14px 24px", borderBottom:"1px solid #EBEBED" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8 }}>
+              Contacts ({contacts.length})
+            </div>
+            <button onClick={() => setShowAddContact(!showAddContact)} style={{
+              padding:"3px 10px", borderRadius:5, fontSize:11, fontWeight:600, cursor:"pointer",
+              border:"1px solid #EBEBED", background: showAddContact ? "#1A1A1A" : "#fff",
+              color: showAddContact ? "#fff" : "#6B6F76", fontFamily:"inherit",
+            }}>{showAddContact ? "Cancel" : "+ Add"}</button>
+          </div>
+
+          {showAddContact && (
+            <div style={{ background:"#FAFAFA", borderRadius:8, padding:12, marginBottom:10, border:"1px solid #EBEBED" }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
+                <input value={newContact.name} onChange={e => setNewContact(p => ({...p, name: e.target.value}))} placeholder="Name *" style={{ padding:"6px 8px", borderRadius:5, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none", gridColumn: "1 / -1" }} />
+                <input value={newContact.title} onChange={e => setNewContact(p => ({...p, title: e.target.value}))} placeholder="Titel (z.B. CEO)" style={{ padding:"6px 8px", borderRadius:5, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
+                <input value={newContact.linkedin_url} onChange={e => setNewContact(p => ({...p, linkedin_url: e.target.value}))} placeholder="LinkedIn URL" style={{ padding:"6px 8px", borderRadius:5, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
+                <input value={newContact.email} onChange={e => setNewContact(p => ({...p, email: e.target.value}))} placeholder="Email" style={{ padding:"6px 8px", borderRadius:5, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
+                <input value={newContact.phone} onChange={e => setNewContact(p => ({...p, phone: e.target.value}))} placeholder="Telefon" style={{ padding:"6px 8px", borderRadius:5, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
+              </div>
+              <button onClick={handleAddContact} disabled={savingContact || !newContact.name.trim()} style={{
+                marginTop:8, padding:"5px 14px", borderRadius:5, border:"none", fontSize:12, fontWeight:600, cursor: newContact.name.trim() ? "pointer" : "default", fontFamily:"inherit",
+                background: newContact.name.trim() ? "#1A1A1A" : "#EBEBED", color: newContact.name.trim() ? "#fff" : "#A0A3A9",
+              }}>{savingContact ? "Saving..." : "Save Contact"}</button>
+            </div>
+          )}
+
+          {contacts.length === 0 && !showAddContact ? (
+            <div style={{ padding:"12px 0", textAlign:"center", color:"#A0A3A9", fontSize:12 }}>No contacts yet. Click "+ Add" to add one.</div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+              {contacts.map((c, i) => (
+                <div key={c.id || i} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", background:"#F7F7F8", borderRadius:8 }}>
+                  <div style={{ width:32, height:32, borderRadius:7, background: c.is_decision_maker ? "#1A1A1A" : "#EBEBED", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:700, color: c.is_decision_maker ? "#fff" : "#6B6F76", flexShrink:0 }}>
+                    {c.name?.charAt(0) || "?"}
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <span style={{ fontSize:13, fontWeight:600, color:"#1A1A1A" }}>{c.name}</span>
+                      {c.is_decision_maker && <span style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:3, background:"#FDECEC", color:"#C13030" }}>DM</span>}
+                    </div>
+                    <div style={{ fontSize:11, color:"#6B6F76" }}>{c.role_at_company || c.title || ""}</div>
+                    <div style={{ display:"flex", gap:6, marginTop:3, flexWrap:"wrap" }}>
+                      {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{ fontSize:10, color:"#0A66C2", textDecoration:"none", fontWeight:600 }}>LinkedIn</a>}
+                      {c.email && <a href={`mailto:${c.email}`} style={{ fontSize:10, color:"#5B5FC7", textDecoration:"none" }}>{c.email}</a>}
+                      {c.phone && <span style={{ fontSize:10, color:"#6B6F76" }}>{c.phone}</span>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Add Note Form */}
@@ -575,7 +671,8 @@ function CompanyDossier({ company, onClose }) {
 export default function ArteqCRM() {
   const [roles, setRoles] = useState([]);
   const [companies, setCompanies] = useState([]);
-  const [contacts, setContacts] = useState({});  // company_id → contact
+  const [contacts, setContacts] = useState({});  // company_id → primary contact
+  const [allContacts, setAllContacts] = useState({});  // company_id → [contacts]
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [tab, setTab] = useState("roles");
@@ -594,19 +691,27 @@ export default function ArteqCRM() {
       const [c, r, cc] = await Promise.all([
         supaFetch("company","select=*&limit=1000"),
         supaFetch("role","select=*&limit=1000"),
-        supaFetch("company_contact","select=*,contact:contact_id(*)&is_decision_maker=eq.true&limit=1000").catch(() => []),
+        supaFetch("company_contact","select=*,contact:contact_id(*)&limit=2000").catch(() => []),
       ]);
       setCompanies(c);
       const m = {}; c.forEach(co => { m[co.id] = co; }); cMap.current = m;
       setRoles(r);
-      // Build company_id → decision maker contact map
+      // Build company_id → contact maps (primary + all)
       const dmMap = {};
+      const allMap = {};
       (cc || []).forEach(link => {
         if (link.contact) {
-          dmMap[link.company_id] = link.contact;
+          // Primary DM = first is_decision_maker=true found
+          if (link.is_decision_maker && !dmMap[link.company_id]) {
+            dmMap[link.company_id] = link.contact;
+          }
+          // All contacts per company
+          if (!allMap[link.company_id]) allMap[link.company_id] = [];
+          allMap[link.company_id].push({ ...link.contact, role_at_company: link.role_at_company, is_decision_maker: link.is_decision_maker });
         }
       });
       setContacts(dmMap);
+      setAllContacts(allMap);
     } catch(e) { setError(e.message); }
     setLoading(false);
   }, []);
@@ -914,8 +1019,8 @@ export default function ArteqCRM() {
         </div>
       </div>
 
-      {tab === "roles" && selected && <DetailDrawer role={selected} company={cMap.current[selected.company_id]} dm={contacts[selected.company_id]} onClose={()=>setSelected(null)} />}
-      {tab === "companies" && selectedCompany && <CompanyDossier company={selectedCompany} onClose={() => setSelectedCompany(null)} />}
+      {tab === "roles" && selected && <DetailDrawer role={selected} company={cMap.current[selected.company_id]} dm={contacts[selected.company_id]} allDms={allContacts[selected.company_id] || []} onClose={()=>setSelected(null)} />}
+      {tab === "companies" && selectedCompany && <CompanyDossier company={selectedCompany} contacts={allContacts[selectedCompany.id] || []} onClose={() => setSelectedCompany(null)} onContactsChanged={load} />}
     </div>
   );
 }
