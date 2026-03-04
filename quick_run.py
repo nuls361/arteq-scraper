@@ -22,6 +22,8 @@ API_KEY = os.getenv("JSEARCH_API_KEY", "")
 ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+ALERT_EMAIL = os.getenv("ALERT_EMAIL", "niels@arteq.app")
 
 
 # ── Static blacklists ───────────────────────────────────────
@@ -1606,6 +1608,7 @@ def main():
     print(f"  AI Scoring: {'ON ✓' if use_ai else 'OFF'}")
     print(f"  Supabase: {'ON ✓' if SUPABASE_URL else 'OFF'}")
     print(f"  Apollo: {'ON ✓ (Hot=enrich, Warm=search)' if APOLLO_API_KEY else 'OFF → DDG fallback'}")
+    print(f"  Email: {'ON ✓ → ' + ALERT_EMAIL if RESEND_API_KEY else 'OFF (set RESEND_API_KEY)'}")
     print("=" * 95)
 
     # ── Test Claude ─────────────────────────────────────────
@@ -1949,6 +1952,185 @@ def main():
                 job.get("url", ""), job.get("posted", ""),
             ])
     print(f"  💾 CSV: {filename}\n")
+
+    # ── Daily Email Summary ──────────────────────────────────
+    send_daily_summary(unique)
+
+
+# ═══════════════════════════════════════════════════════════
+# DAILY EMAIL SUMMARY
+# ═══════════════════════════════════════════════════════════
+def build_run_summary_data(jobs):
+    """Build structured summary data from a scraper run for Claude to narrate."""
+    hot = [j for j in jobs if j["tier"] == "HOT" and not (j.get("ai_analysis") or {}).get("is_agency")]
+    warm = [j for j in jobs if j["tier"] == "WARM" and not (j.get("ai_analysis") or {}).get("is_agency")]
+    parked = [j for j in jobs if j["tier"] == "PARKED"]
+    agencies = [j for j in jobs if (j.get("ai_analysis") or {}).get("is_agency")]
+
+    # Unique companies
+    hot_companies = list({j["company"] for j in hot})
+    warm_companies = list({j["company"] for j in warm})
+
+    # Contacts found
+    contacts_found = 0
+    contacts_with_email = 0
+    for j in jobs:
+        dm = j.get("decision_maker")
+        if dm:
+            contacts_found += 1
+            if dm.get("email"):
+                contacts_with_email += 1
+
+    # Top leads detail
+    top_leads = []
+    for j in sorted(hot + warm, key=lambda x: x.get("score", 0), reverse=True)[:8]:
+        ai = j.get("ai_analysis") or {}
+        enr = j.get("enrichment") or {}
+        dm = j.get("decision_maker") or {}
+        top_leads.append({
+            "company": j["company"],
+            "role": j["title"],
+            "tier": j["tier"],
+            "score": j.get("score", 0),
+            "engagement_type": ai.get("engagement_type", ""),
+            "industry": enr.get("industry", ""),
+            "funding": enr.get("funding_stage", ""),
+            "headcount": enr.get("headcount_estimate", ""),
+            "dm_name": dm.get("name", ""),
+            "dm_title": dm.get("title", ""),
+            "dm_email": dm.get("email", ""),
+            "dm_linkedin": dm.get("linkedin_url", ""),
+            "requirements": ai.get("requirements_summary", ""),
+            "url": j.get("url", ""),
+        })
+
+    return {
+        "date": datetime.now().strftime("%d.%m.%Y"),
+        "total_scraped": len(jobs),
+        "hot_count": len(hot),
+        "warm_count": len(warm),
+        "parked_count": len(parked),
+        "agency_count": len(agencies),
+        "hot_companies": hot_companies[:15],
+        "warm_companies": warm_companies[:15],
+        "contacts_found": contacts_found,
+        "contacts_with_email": contacts_with_email,
+        "top_leads": top_leads,
+    }
+
+
+def claude_write_email_summary(summary_data):
+    """Let Claude write a concise, actionable daily summary email in HTML."""
+    if not ANTHROPIC_KEY:
+        return None
+
+    prompt = f"""Du schreibst eine tägliche Zusammenfassungs-Email für Niels von Arteq (Fractional/Interim Executive Vermittlung in DACH).
+
+Die Email soll kurz, professionell und actionable sein. Schreibe auf Deutsch, informeller Ton (du-Form).
+
+Hier sind die Daten vom heutigen Scraper-Run:
+
+Datum: {summary_data['date']}
+Gesamt gescrapte Rollen: {summary_data['total_scraped']}
+Hot Leads: {summary_data['hot_count']}
+Warm Leads: {summary_data['warm_count']}
+Parked: {summary_data['parked_count']}
+Agenturen (rausgefiltert): {summary_data['agency_count']}
+Contacts gefunden: {summary_data['contacts_found']} (davon {summary_data['contacts_with_email']} mit Email)
+
+Hot Companies: {', '.join(summary_data['hot_companies'][:10]) or 'keine'}
+Warm Companies: {', '.join(summary_data['warm_companies'][:10]) or 'keine'}
+
+Top Leads (sortiert nach Score):
+{json.dumps(summary_data['top_leads'], indent=2, ensure_ascii=False)}
+
+Schreibe die Email als HTML. Nutze ein cleanes, modernes Design (inline CSS).
+Die Email soll enthalten:
+1. Ein kurzes Intro (1-2 Sätze, was heute passiert ist)
+2. Key Numbers als kompakte Übersicht
+3. Top Leads als Tabelle (Company, Role, Score, Tier, DM Name/Title, Engagement Type)
+4. Bei jedem Lead wo ein DM mit LinkedIn vorhanden ist: einen klickbaren Link
+5. Ein kurzes Fazit/Empfehlung welche Leads man sich heute zuerst anschauen sollte
+
+Antworte NUR mit dem HTML (kein Markdown, keine Backticks, kein Framing). Starte direkt mit <div>."""
+
+    try:
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-5-20250929",
+                "max_tokens": 2000,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=60,
+        )
+        if resp.status_code != 200:
+            logger.error(f"  Claude Email Summary API {resp.status_code}: {resp.text[:200]}")
+            return None
+
+        data = resp.json()
+        html = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+        return html.strip() if html.strip() else None
+
+    except Exception as e:
+        logger.error(f"  Claude email summary error: {e}")
+        return None
+
+
+def send_daily_summary(jobs):
+    """Generate AI summary and send via Resend."""
+    if not RESEND_API_KEY:
+        logger.info("No RESEND_API_KEY — skipping email summary")
+        return
+
+    if not ANTHROPIC_KEY:
+        logger.info("No ANTHROPIC_API_KEY — cannot generate email summary")
+        return
+
+    try:
+        import resend
+        resend.api_key = RESEND_API_KEY
+    except ImportError:
+        logger.error("resend package not installed — pip install resend")
+        return
+
+    logger.info("\n📧 GENERATING DAILY EMAIL SUMMARY...")
+
+    # Build data
+    summary_data = build_run_summary_data(jobs)
+
+    if summary_data["hot_count"] == 0 and summary_data["warm_count"] == 0:
+        logger.info("  No hot/warm leads today — skipping email")
+        return
+
+    # Let Claude write the email
+    html_body = claude_write_email_summary(summary_data)
+    if not html_body:
+        logger.error("  Failed to generate email summary")
+        return
+
+    # Send via Resend
+    try:
+        date_str = summary_data["date"]
+        hot = summary_data["hot_count"]
+        warm = summary_data["warm_count"]
+
+        email = resend.Emails.send({
+            "from": "Arteq Pipeline <onboarding@resend.dev>",
+            "to": [ALERT_EMAIL],
+            "subject": f"Pipeline Update {date_str} — {hot} Hot, {warm} Warm Leads",
+            "html": html_body,
+        })
+
+        logger.info(f"  ✅ Email sent to {ALERT_EMAIL} (ID: {email.get('id', '?')})")
+
+    except Exception as e:
+        logger.error(f"  Email send error: {e}")
 
 
 if __name__ == "__main__":
