@@ -26,7 +26,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 gspread google-auth python-jobspy
+        run: pip install -r requirements.txt && pip install python-jobspy gspread google-auth
 
       - name: Write Google credentials
         run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > credentials.json
@@ -39,6 +39,8 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           APOLLO_API_KEY: ${{ secrets.APOLLO_API_KEY }}
           JOBSPY_PROXY: ${{ secrets.JOBSPY_PROXY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
         run: python quick_run.py
 
       - name: Upload CSV backup
