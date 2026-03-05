@@ -71,7 +71,8 @@ jobs:
                   r = requests.post('https://api.apollo.io/api/v1/mixed_people/search',
                       headers={'Content-Type': 'application/json', 'X-Api-Key': key},
                       json={'q_organization_name': 'test', 'per_page': 1, 'page': 1}, timeout=10)
-                  results['Apollo'] = 'ok' if r.status_code == 200 else f'HTTP {r.status_code}'
+                  # 200=ok, 422=valid key but bad params, 429=rate limited
+                  results['Apollo'] = 'ok' if r.status_code in (200, 422, 429) else f'HTTP {r.status_code}'
               except Exception as e:
                   results['Apollo'] = f'error: {e}'
           else:
@@ -110,7 +111,7 @@ jobs:
                   r = requests.get('https://jsearch.p.rapidapi.com/search',
                       headers={'X-RapidAPI-Key': key, 'X-RapidAPI-Host': 'jsearch.p.rapidapi.com'},
                       params={'query': 'test', 'num_pages': '1'}, timeout=10)
-                  results['JSearch'] = 'ok' if r.status_code == 200 else f'HTTP {r.status_code}'
+                  results['JSearch'] = 'ok' if r.status_code in (200, 429) else f'HTTP {r.status_code}'
               except Exception as e:
                   results['JSearch'] = f'error: {e}'
           else:
