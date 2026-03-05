@@ -26,6 +26,21 @@ async function supaPost(table, data) {
   return res.json();
 }
 
+async function supaPatch(table, match, data) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${match}`, {
+    method: "PATCH",
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
 const TIER = {
   hot:    { label: "Hot",    bg: "#FDECEC", color: "#C13030", dot: "#E5484D" },
   warm:   { label: "Warm",   bg: "#FFF0E1", color: "#AD5700", dot: "#F5A623" },
@@ -64,6 +79,25 @@ function Score({ v }) {
   if (v == null) return <span style={{ color:"#A0A3A9" }}>—</span>;
   const color = v >= 70 ? "#E5484D" : v >= 40 ? "#F5A623" : "#A0A3A9";
   return <span style={{ fontWeight:600, fontSize:13, color, fontVariantNumeric:"tabular-nums" }}>{v}</span>;
+}
+
+function MatchScorePill({ score }) {
+  if (score == null) return <span style={{ color:"#A0A3A9", fontSize:12 }}>—</span>;
+  const bg = score >= 80 ? "#FDECEC" : score >= 60 ? "#FFF0E1" : "#F2F3F5";
+  const color = score >= 80 ? "#C13030" : score >= 60 ? "#AD5700" : "#6B6F76";
+  return <span style={{ padding:"3px 8px", borderRadius:4, fontSize:12, fontWeight:700, background:bg, color, fontVariantNumeric:"tabular-nums" }}>{score}</span>;
+}
+
+const MATCH_STATUS = {
+  proposed: { bg:"#EDE9FE", color:"#6D28D9" },
+  reviewed: { bg:"#DBEAFE", color:"#1D4ED8" },
+  accepted: { bg:"#D1FAE5", color:"#065F46" },
+  rejected: { bg:"#FDECEC", color:"#C13030" },
+};
+
+function MatchStatusPill({ status }) {
+  const s = MATCH_STATUS[status] || { bg:"#F2F3F5", color:"#6B6F76" };
+  return <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:600, background:s.bg, color:s.color, textTransform:"capitalize" }}>{status || "—"}</span>;
 }
 
 function ColHead({ children, width, align, sk, sort, onSort }) {
@@ -216,6 +250,9 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
   const [detailTab, setDetailTab] = useState("activity");
   const [enriching, setEnriching] = useState(false);
   const [companyAgentLogs, setCompanyAgentLogs] = useState([]);
+  const [roleMatches, setRoleMatches] = useState([]);
+  const [matchCandidates, setMatchCandidates] = useState({});
+  const [expandedReasoning, setExpandedReasoning] = useState({});
 
   const loadEntries = useCallback(async () => {
     if (!company) return;
@@ -281,6 +318,34 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
       }
     })();
   }, [company]);
+
+  // Load candidate matches for this role
+  useEffect(() => {
+    if (!role) { setRoleMatches([]); setMatchCandidates({}); return; }
+    (async () => {
+      try {
+        const matches = await supaFetch(
+          "role_candidate_match",
+          `role_id=eq.${role.id}&order=match_score.desc`
+        );
+        setRoleMatches(matches || []);
+        const cIds = [...new Set((matches || []).map(m => m.candidate_id).filter(Boolean))];
+        if (cIds.length > 0) {
+          const cands = await supaFetch("candidate", `id=in.(${cIds.join(",")})`);
+          const cm = {};
+          (cands || []).forEach(c => { cm[c.id] = c; });
+          setMatchCandidates(cm);
+        }
+      } catch (e) { console.error("Match load error:", e); }
+    })();
+  }, [role]);
+
+  const updateMatchStatus = async (matchId, newStatus) => {
+    try {
+      await supaPatch("role_candidate_match", `id=eq.${matchId}`, { status: newStatus, updated_at: new Date().toISOString() });
+      setRoleMatches(prev => prev.map(m => m.id === matchId ? { ...m, status: newStatus } : m));
+    } catch (e) { console.error("Match status update error:", e); }
+  };
 
   // Load outreach conversation threads for this company
   useEffect(() => {
@@ -1019,6 +1084,72 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                 }}>View job posting ↗</a>
               )}
 
+              {/* Candidate Matches */}
+              <div style={{ marginTop:28, paddingTop:20, borderTop:"1px solid #EBEBED" }}>
+                <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:12 }}>
+                  Candidate Matches {roleMatches.length > 0 && `(${roleMatches.length})`}
+                </div>
+                {roleMatches.length === 0 ? (
+                  <div style={{ fontSize:12, color:"#A0A3A9", padding:"12px 0" }}>
+                    {role.research_status === "pending" || role.research_status === "running" ? "Research pending…" : "No candidate matches yet"}
+                  </div>
+                ) : (
+                  <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                    {roleMatches.map(match => {
+                      const cand = matchCandidates[match.candidate_id] || {};
+                      const expanded = expandedReasoning[match.id];
+                      return (
+                        <div key={match.id} style={{ border:"1px solid #EBEBED", borderRadius:8, padding:"12px 14px", background:"#FAFAFA" }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ fontWeight:600, fontSize:13, color:"#1A1A1A" }}>{cand.full_name || "Unknown"}</div>
+                              {cand.current_title && <div style={{ fontSize:11, color:"#6B6F76", marginTop:1 }}>{cand.current_title}</div>}
+                            </div>
+                            <MatchScorePill score={match.match_score} />
+                          </div>
+
+                          <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginBottom:8 }}>
+                            {match.function_match && <span style={{ padding:"2px 6px", borderRadius:3, fontSize:10, fontWeight:600, background:"#D1FAE5", color:"#065F46" }}>Function ✓</span>}
+                            {match.location_match && <span style={{ padding:"2px 6px", borderRadius:3, fontSize:10, fontWeight:600, background:"#D1FAE5", color:"#065F46" }}>Location ✓</span>}
+                            {!match.function_match && <span style={{ padding:"2px 6px", borderRadius:3, fontSize:10, fontWeight:500, background:"#F2F3F5", color:"#A0A3A9" }}>Function ✗</span>}
+                            {!match.location_match && <span style={{ padding:"2px 6px", borderRadius:3, fontSize:10, fontWeight:500, background:"#F2F3F5", color:"#A0A3A9" }}>Location ✗</span>}
+                          </div>
+
+                          {match.skills_overlap && match.skills_overlap.length > 0 && (
+                            <div style={{ display:"flex", gap:3, flexWrap:"wrap", marginBottom:8 }}>
+                              {match.skills_overlap.map((s,i) => <span key={i} style={{ padding:"2px 6px", borderRadius:3, fontSize:10, background:"#EDE9FE", color:"#6D28D9" }}>{s}</span>)}
+                            </div>
+                          )}
+
+                          {match.match_reasoning && (
+                            <div style={{ marginBottom:8 }}>
+                              <div onClick={() => setExpandedReasoning(prev => ({ ...prev, [match.id]: !prev[match.id] }))} style={{ fontSize:11, color:"#5B5FC7", cursor:"pointer", userSelect:"none" }}>
+                                {expanded ? "▾ Hide reasoning" : "▸ Show reasoning"}
+                              </div>
+                              {expanded && <div style={{ fontSize:11, color:"#6B6F76", lineHeight:1.5, marginTop:4, background:"#F7F7F8", padding:"8px 10px", borderRadius:4, whiteSpace:"pre-wrap" }}>{match.match_reasoning}</div>}
+                            </div>
+                          )}
+
+                          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                            <select value={match.status || "proposed"} onChange={e => updateMatchStatus(match.id, e.target.value)} style={{
+                              padding:"4px 8px", borderRadius:4, border:"1px solid #EBEBED", fontSize:11, fontFamily:"inherit", background:"#fff", cursor:"pointer",
+                            }}>
+                              <option value="proposed">Proposed</option>
+                              <option value="reviewed">Reviewed</option>
+                              <option value="accepted">Accepted</option>
+                              <option value="rejected">Rejected</option>
+                            </select>
+                            {cand.linkedin_url && (
+                              <a href={cand.linkedin_url} target="_blank" rel="noopener" style={{ padding:"3px 8px", borderRadius:4, background:"#0A66C2", color:"#fff", fontSize:10, fontWeight:600, textDecoration:"none" }}>LinkedIn</a>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
               {/* Company section below role */}
               <div style={{ marginTop:28, paddingTop:20, borderTop:"1px solid #EBEBED" }}>
                 <div onClick={() => onOpenCompany && onOpenCompany(company)} style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:12, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:4 }}>Company <span style={{ fontSize:9, color:"#5B5FC7" }}>↗</span></div>
@@ -1206,18 +1337,27 @@ export default function ALineCRM() {
   const [allPeopleList, setAllPeopleList] = useState([]);
   const [peopleSourceFilter, setPeopleSourceFilter] = useState("all");
   const [peopleRoleTypeFilter, setPeopleRoleTypeFilter] = useState("all");
+  const [allMatches, setAllMatches] = useState([]);
+  const [allCandidates, setAllCandidates] = useState({});
+  const [matchStatusFilter, setMatchStatusFilter] = useState("all");
   const cMap = useRef({});
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [c, r, cc, logs] = await Promise.all([
+      const [c, r, cc, logs, matches, candidates] = await Promise.all([
         supaFetch("company","select=*&limit=1000"),
         supaFetch("role","select=*&limit=1000"),
         supaFetch("contact","select=*&limit=2000").catch(() => []),
         supaFetch("agent_log","select=*&order=created_at.desc&limit=200").catch(() => []),
+        supaFetch("role_candidate_match","select=*&order=created_at.desc&limit=500").catch(() => []),
+        supaFetch("candidate","select=*&limit=1000").catch(() => []),
       ]);
       setAgentLogs(logs || []);
+      setAllMatches(matches || []);
+      const candMap = {};
+      (candidates || []).forEach(cd => { candMap[cd.id] = cd; });
+      setAllCandidates(candMap);
       setCompanies(c);
       const m = {}; c.forEach(co => { m[co.id] = co; }); cMap.current = m;
       setRoles(r);
@@ -1397,6 +1537,15 @@ export default function ALineCRM() {
         ))}
 
         <div style={{ height:20 }} />
+        <div key="Matches" onClick={() => { setTab("matches"); setSearch(""); setTierFilter("all"); setSourceFilter("all"); setStatusFilter("all"); setPeopleSourceFilter("all"); setPeopleRoleTypeFilter("all"); setMatchStatusFilter("all"); setSelectedCompany(null); setSelectedCompanyIndex(-1); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); }} style={{
+          display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:6,
+          background:tab==="matches"?"#EBEBED":"transparent", color:tab==="matches"?"#1A1A1A":"#6B6F76",
+          fontSize:13, fontWeight:tab==="matches"?600:400, cursor:"pointer", marginBottom:1,
+        }}>
+          <span style={{ fontSize:14, width:18, textAlign:"center", opacity:0.6 }}>◇</span>
+          <span style={{ flex:1 }}>Matches</span>
+          {allMatches.length > 0 && <span style={{ fontSize:11, color:"#A0A3A9" }}>{allMatches.length}</span>}
+        </div>
         <div key="Agent Log" onClick={() => { setTab("agent"); setSearch(""); setTierFilter("all"); setSourceFilter("all"); setStatusFilter("all"); setPeopleSourceFilter("all"); setPeopleRoleTypeFilter("all"); setSelectedCompany(null); setSelectedCompanyIndex(-1); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); }} style={{
           display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:6,
           background:tab==="agent"?"#EBEBED":"transparent", color:tab==="agent"?"#1A1A1A":"#6B6F76",
@@ -1426,8 +1575,8 @@ export default function ALineCRM() {
         {/* Topbar */}
         <div style={{ padding:"12px 20px", borderBottom:"1px solid #EBEBED", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-            <span style={{ fontSize:15, fontWeight:600 }}>{tab === "roles" ? "Roles" : tab === "companies" ? "Companies" : tab === "people" ? "People" : "Agent Log"}</span>
-            <span style={{ fontSize:12, color:"#A0A3A9" }}>{tab === "roles" ? `${filtered.length} records` : tab === "companies" ? `${filteredCompanies.length} records` : tab === "people" ? `${filteredPeople.length} contacts` : `${agentLogs.length} decisions`}</span>
+            <span style={{ fontSize:15, fontWeight:600 }}>{tab === "roles" ? "Roles" : tab === "companies" ? "Companies" : tab === "people" ? "People" : tab === "matches" ? "Matches" : "Agent Log"}</span>
+            <span style={{ fontSize:12, color:"#A0A3A9" }}>{tab === "roles" ? `${filtered.length} records` : tab === "companies" ? `${filteredCompanies.length} records` : tab === "people" ? `${filteredPeople.length} contacts` : tab === "matches" ? `${allMatches.length} matches` : `${agentLogs.length} decisions`}</span>
           </div>
           <button onClick={load} style={{
             padding:"5px 12px", borderRadius:6, border:"1px solid #EBEBED",
@@ -1437,7 +1586,33 @@ export default function ALineCRM() {
         </div>
 
         {/* Filters */}
-        {tab === "agent" ? null : tab === "people" ? (
+        {tab === "agent" || tab === "matches" ? (
+          tab === "matches" ? (
+            <div style={{ display:"flex", alignItems:"center", gap:5, padding:"8px 20px", borderBottom:"1px solid #EBEBED", flexWrap:"wrap" }}>
+              {["all","proposed","reviewed","accepted","rejected"].map(s => {
+                const cnt = s === "all" ? allMatches.length : allMatches.filter(m => m.status === s).length;
+                return (
+                  <button key={s} onClick={() => setMatchStatusFilter(s)} style={{
+                    padding:"4px 10px", borderRadius:4, fontSize:12, fontWeight:500, cursor:"pointer",
+                    border: matchStatusFilter===s ? "1.5px solid #1A1A1A" : "1px solid #EBEBED",
+                    background: matchStatusFilter===s ? "#1A1A1A" : "#fff",
+                    color: matchStatusFilter===s ? "#fff" : "#6B6F76",
+                  }}>
+                    {s === "all" ? `All ${cnt}` : `${s.charAt(0).toUpperCase()+s.slice(1)} ${cnt}`}
+                  </button>
+                );
+              })}
+              <div style={{ flex:1 }} />
+              <div style={{ position:"relative" }}>
+                <span style={{ position:"absolute", left:9, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"#A0A3A9" }}>⌕</span>
+                <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Filter…" style={{
+                  padding:"5px 10px 5px 26px", borderRadius:6, border:"1px solid #EBEBED",
+                  fontSize:12, fontFamily:"inherit", outline:"none", width:170, color:"#1A1A1A",
+                }} />
+              </div>
+            </div>
+          ) : null
+        ) : tab === "people" ? (
           <div style={{ display:"flex", alignItems:"center", gap:5, padding:"8px 20px", borderBottom:"1px solid #EBEBED", flexWrap:"wrap" }}>
             {["all",...Object.keys(peopleSourceCounts).filter(Boolean)].map(s => (
               <button key={s} onClick={() => setPeopleSourceFilter(s)} style={{
@@ -1693,6 +1868,78 @@ export default function ALineCRM() {
                 </tbody>
               </table>
             )
+          ) : tab === "matches" ? (
+            (() => {
+              const rMap = {}; roles.forEach(r => { rMap[r.id] = r; });
+              const filteredMatches = allMatches.filter(m => {
+                if (matchStatusFilter !== "all" && m.status !== matchStatusFilter) return false;
+                if (search) {
+                  const cand = allCandidates[m.candidate_id];
+                  const role = rMap[m.role_id];
+                  const co = role ? cMap.current[role.company_id] : null;
+                  const hay = `${cand?.full_name||""} ${role?.title||""} ${co?.name||""}`.toLowerCase();
+                  if (!hay.includes(search.toLowerCase())) return false;
+                }
+                return true;
+              });
+              return filteredMatches.length === 0 ? (
+                <div style={{ padding:60, textAlign:"center", color:"#A0A3A9" }}>
+                  <div style={{ fontSize:26, marginBottom:6 }}>◇</div>
+                  <div style={{ fontSize:14, fontWeight:500 }}>No matches yet</div>
+                  <div style={{ fontSize:12, marginTop:4 }}>Run the research agent to generate candidate matches.</div>
+                </div>
+              ) : (
+                <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                  <thead>
+                    <tr>
+                      <ColHead width={180}>Role</ColHead>
+                      <ColHead width={170}>Candidate</ColHead>
+                      <ColHead width={70} align="center">Score</ColHead>
+                      <ColHead width={90}>Status</ColHead>
+                      <ColHead width={80}>Function</ColHead>
+                      <ColHead width={80}>Location</ColHead>
+                      <ColHead width={90}>Created</ColHead>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredMatches.slice(0,200).map(match => {
+                      const cand = allCandidates[match.candidate_id] || {};
+                      const role = rMap[match.role_id] || {};
+                      const co = cMap.current[role.company_id] || {};
+                      return (
+                        <tr key={match.id} onClick={() => {
+                          if (co.id) { setSelectedCompany(co); setSelectedCompanyIndex(-1); }
+                          if (role.id) { setSelectedRole(role); setSelectedRoleIndex(-1); }
+                          setSelectedPerson(null); setSelectedPersonIndex(-1);
+                        }} style={{ cursor:"pointer", borderBottom:"1px solid #F7F7F8" }}
+                          onMouseEnter={e => e.currentTarget.style.background="#F7F7F8"}
+                          onMouseLeave={e => e.currentTarget.style.background="transparent"}>
+                          <td style={{ padding:"9px 14px" }}>
+                            <div style={{ fontWeight:600, fontSize:12 }}>{role.title || "—"}</div>
+                            <div style={{ fontSize:10, color:"#A0A3A9" }}>{co.name || "—"}</div>
+                          </td>
+                          <td style={{ padding:"9px 14px" }}>
+                            <div style={{ fontWeight:600, fontSize:12 }}>{cand.full_name || "—"}</div>
+                            <div style={{ fontSize:10, color:"#A0A3A9" }}>{cand.current_title || "—"}</div>
+                          </td>
+                          <td style={{ padding:"9px 14px", textAlign:"center" }}><MatchScorePill score={match.match_score} /></td>
+                          <td style={{ padding:"9px 14px" }}><MatchStatusPill status={match.status} /></td>
+                          <td style={{ padding:"9px 14px" }}>
+                            {match.function_match ? <span style={{ fontSize:11, color:"#065F46" }}>✓</span> : <span style={{ fontSize:11, color:"#A0A3A9" }}>✗</span>}
+                          </td>
+                          <td style={{ padding:"9px 14px" }}>
+                            {match.location_match ? <span style={{ fontSize:11, color:"#065F46" }}>✓</span> : <span style={{ fontSize:11, color:"#A0A3A9" }}>✗</span>}
+                          </td>
+                          <td style={{ padding:"9px 14px", color:"#A0A3A9", fontSize:12, whiteSpace:"nowrap" }}>
+                            {match.created_at ? new Date(match.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short"}) : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              );
+            })()
           ) : (
             /* Agent Log Tab */
             agentLogs.length === 0 ? (
