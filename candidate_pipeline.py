@@ -862,34 +862,30 @@ def extract_author_name(title, body, url, source):
                     name = raw
 
     elif source == "linkedin":
-        # LinkedIn pulse new format: /pulse/title/author-slug
-        match = re.search(r"linkedin\.com/pulse/[^/]+/([a-z0-9\-]+)", url)
-        if match:
-            raw = match.group(1).replace("-", " ").title()
-            parts = raw.split()
-            if len(parts) >= 2 and len(parts) <= 4:
-                name = raw
         # "Author Name on LinkedIn" or "Author Name | LinkedIn"
-        if not name:
-            match = re.search(r"([A-Z][a-zA-Zäöüß\-']+ [A-Z][a-zA-Zäöüß\-']+)\s+(?:on|[\|–—-])\s*LinkedIn", title)
-            if match:
-                name = match.group(1)
+        match = re.search(r"([A-Z][a-zA-Zäöüß\-']+ [A-Z][a-zA-Zäöüß\-']+)\s+(?:on|[\|–—-])\s*LinkedIn", title)
+        if match:
+            name = match.group(1)
         # "by Author Name" in body
         if not name:
             match = re.search(r"\bby\s+([A-Z][a-zA-Zäöüß\-']+ [A-Z][a-zA-Zäöüß\-']+)", body)
             if match:
                 name = match.group(1)
-        # LinkedIn old pulse format: /pulse/title-author-name
+        # LinkedIn pulse URL: extract author from slug
+        # New format: /pulse/title-slug/firstname-lastname-XXXXX
+        # Old format: /pulse/title-slug-firstname-lastname-XXXXX
+        # The last 5 chars are a random ID
         if not name:
-            match = re.search(r"linkedin\.com/pulse/(.+?)(?:\?|$)", url)
+            match = re.search(r"linkedin\.com/pulse/.+-([a-z]+-[a-z]+(?:-[a-z]+)?)-[a-z0-9]{5}/?$", url)
             if match:
-                slug = match.group(1).rstrip("/")
-                # Last 2-3 words of slug are often the author
-                parts = slug.split("-")
-                if len(parts) >= 4:
-                    candidate = " ".join(parts[-2:]).title()
-                    if len(candidate) > 5:
-                        name = candidate
+                raw = match.group(1).replace("-", " ").title()
+                name = raw
+        # Old format without ID suffix (rare)
+        if not name:
+            match = re.search(r"linkedin\.com/pulse/.+-([a-z]+-[a-z]+(?:-[a-z]+)?)/?$", url)
+            if match:
+                raw = match.group(1).replace("-", " ").title()
+                name = raw
 
     elif source == "medium":
         # Medium: "@authorname" in URL
@@ -909,22 +905,47 @@ def extract_author_name(title, body, url, source):
             if match:
                 name = match.group(1)
 
-    # Validate: must have at least 2 words, no generic names
+    # Validate: must look like a real person name
     if name:
-        parts = name.strip().split()
+        name = name.strip()
+        parts = name.split()
         if len(parts) < 2:
             return ""
-        # Filter out generic non-name strings
+
+        # Filter out generic non-name words
         generic = {"the", "and", "for", "with", "about", "from", "this", "that",
-                   "your", "how", "what", "why", "when", "our", "all", "new"}
+                   "your", "how", "what", "why", "when", "our", "all", "new",
+                   "get", "top", "best", "key", "big", "part", "safe"}
         if parts[0].lower() in generic or parts[1].lower() in generic:
             return ""
-        # Filter out platform names
-        platform_names = {"substack", "medium", "linkedin", "newsletter", "blog", "article"}
+
+        # Filter out platform/brand names
+        platform_names = {"substack", "medium", "linkedin", "newsletter", "blog",
+                          "article", "news", "group", "consulting", "solutions"}
         if any(p.lower() in platform_names for p in parts):
             return ""
 
-    return name.strip()
+        # Filter out business/industry terms that aren't person names
+        non_names = {
+            "interim", "fractional", "management", "executive", "manager",
+            "talent", "demand", "strategy", "strategies", "leadership",
+            "business", "company", "corporate", "digital", "growth",
+            "time", "work", "role", "hire", "team", "chief", "board",
+            "service", "services", "partner", "partners", "capital",
+            "global", "human", "resources", "financial", "advisory",
+            "experts", "executives", "consultants", "professionals",
+        }
+        if any(p.lower() in non_names for p in parts):
+            return ""
+
+        # Each name part must be at least 2 chars and only letters/hyphens/apostrophes
+        for p in parts:
+            if len(p) < 2:
+                return ""
+            if not re.match(r"^[A-Za-zÀ-ÿ\-']+$", p):
+                return ""
+
+    return name
 
 
 def extract_niche(title, body):
