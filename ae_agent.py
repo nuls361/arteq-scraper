@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arteq AE Agent — Bottom of Funnel.
+A-Line AE Agent — Bottom of Funnel.
 
 Handles:
   - First response to qualified leads (after SDR handoff)
@@ -128,7 +128,7 @@ def handle_new_qualifieds(config):
 
         conv_history = ""
         for msg in thread:
-            sender = "Niels (Arteq)" if msg.get("direction") == "outbound" else dm.get("name", "Kontakt")
+            sender = "Niels (A-Line)" if msg.get("direction") == "outbound" else dm.get("name", "Kontakt")
             body = msg.get("raw_text") or re.sub(r"<[^>]+>", "", msg.get("body_html", ""))
             body = re.sub(r"\s+", " ", body).strip()
             conv_history += f"\n[{sender}]: {body[:500]}\n"
@@ -311,7 +311,7 @@ def generate_meeting_preps(config):
         if outreach:
             context += "\nBisherige Kommunikation:\n"
             for msg in outreach:
-                sender = "Arteq" if msg.get("direction") == "outbound" else "Kontakt"
+                sender = "A-Line" if msg.get("direction") == "outbound" else "Kontakt"
                 body = msg.get("raw_text") or re.sub(r"<[^>]+>", "", msg.get("body_html", ""))
                 body = re.sub(r"\s+", " ", body).strip()
                 context += f"  [{sender}]: {body[:200]}\n"
@@ -325,7 +325,7 @@ Das Briefing soll enthalten:
 1. **Company Summary** — Was macht die Firma, wie groß, welche Phase?
 2. **Stakeholder** — Wer sitzt vermutlich am Tisch? Hintergrund.
 3. **Hypothese** — Was ist vermutlich ihr Problem? Warum haben sie Interesse?
-4. **Arteq-Fit** — Welcher Executive-Typ passt? Fractional oder Interim? Warum?
+4. **A-Line-Fit** — Welcher Executive-Typ passt? Fractional oder Interim? Warum?
 5. **Talking Points** — 3-4 gute Fragen die Niels stellen sollte
 6. **Red Flags** — Was könnte dagegen sprechen?
 

@@ -1,4 +1,4 @@
-# Arteq Job Signal Scraper
+# A-Line Job Signal Scraper
 
 Automated pipeline that finds fractional and interim executive hiring signals across DACH startups and scale-ups.
 
@@ -22,7 +22,7 @@ Automated pipeline that finds fractional and interim executive hiring signals ac
 ```bash
 # Clone and install
 git clone <your-repo-url>
-cd arteq-scraper
+cd a-line-scraper
 pip install -r requirements.txt
 
 # Set your API key
@@ -89,7 +89,7 @@ Total monthly cost: **€0**
 ## Project Structure
 
 ```
-arteq-scraper/
+a-line-scraper/
 ├── main.py                  # Orchestration & CLI
 ├── config.py                # Keywords, scoring weights, settings
 ├── scorer.py                # Scoring engine

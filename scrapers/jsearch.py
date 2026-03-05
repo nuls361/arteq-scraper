@@ -1,5 +1,5 @@
 """
-Arteq Job Signal Scraper — JSearch API (RapidAPI Free Tier)
+A-Line Job Signal Scraper — JSearch API (RapidAPI Free Tier)
 Free: 200 requests/month via RapidAPI
 Docs: https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch
 """

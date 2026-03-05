@@ -1,5 +1,5 @@
 """
-Arteq Job Signal Scraper — Google Sheets Writer
+A-Line Job Signal Scraper — Google Sheets Writer
 
 Writes scored, deduplicated leads to Google Sheets.
 Uses gspread library with service account credentials.
@@ -226,7 +226,7 @@ def write_to_csv(jobs: list[dict], run_stats: dict) -> bool:
         parked = sum(1 for j in jobs if j.get("signal_tier") == "Parked")
 
         with open(summary_file, "w") as f:
-            f.write(f"Arteq Job Signal Scraper — Run Summary\n")
+            f.write(f"A-Line Job Signal Scraper — Run Summary\n")
             f.write(f"{'='*50}\n")
             f.write(f"Timestamp: {timestamp}\n")
             f.write(f"Total leads: {len(jobs)}\n")

@@ -1,4 +1,4 @@
-name: Arteq Signal Scrape
+name: A-Line Signal Scrape
 
 on:
   schedule:

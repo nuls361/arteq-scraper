@@ -1,5 +1,5 @@
 """
-Arteq Job Signal Scraper — Scoring Engine
+A-Line Job Signal Scraper — Scoring Engine
 
 Additive scoring (0-100):
   +40  Explicit fractional/interim in title

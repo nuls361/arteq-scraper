@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arteq SDR Agent — Top of Funnel.
+A-Line SDR Agent — Top of Funnel.
 
 Handles:
   - Cold outreach to new prospects
@@ -222,7 +222,7 @@ def run_cold_outreach(config):
             logger.error(f"  JSON parse error for outreach to {co['name']}")
             continue
 
-        subject = email_data.get("subject", f"Arteq x {co['name']}")
+        subject = email_data.get("subject", f"A-Line x {co['name']}")
         body_html = email_data.get("body_html", "")
         if not body_html:
             continue
@@ -410,7 +410,7 @@ def run_reply_handler(config):
         # Build conversation context
         conv_history = ""
         for msg in (thread or []):
-            sender = "Niels (Arteq)" if msg.get("direction") == "outbound" else dm.get("name", "Kontakt")
+            sender = "Niels (A-Line)" if msg.get("direction") == "outbound" else dm.get("name", "Kontakt")
             body = msg.get("raw_text") or re.sub(r"<[^>]+>", "", msg.get("body_html", ""))
             body = re.sub(r"\s+", " ", body).strip()
             conv_history += f"\n[{sender}]: {body[:500]}\n"

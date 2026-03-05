@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arteq Quick Run v6 — Multi-Source Pipeline
+A-Line Quick Run v6 — Multi-Source Pipeline
 Sources: JSearch, Arbeitnow, Welcome to the Jungle
 Usage: python quick_run.py
 """
@@ -16,7 +16,7 @@ from datetime import datetime
 from urllib.parse import quote
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("arteq")
+logger = logging.getLogger("a-line")
 
 API_KEY = os.getenv("JSEARCH_API_KEY", "")
 ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
@@ -407,7 +407,7 @@ def scrape_remoteok():
             if is_excluded(company, title):
                 continue
 
-            # Filter for C-level / leadership roles relevant to Arteq
+            # Filter for C-level / leadership roles relevant to A-Line
             # STRICT: Match on TITLE only — description matching catches too much noise
             t_lower = title.lower()
 
@@ -472,7 +472,7 @@ JOBSPY_SEARCHES = [
     {"search_term": "fractional CFO", "location": "Germany"},
     {"search_term": "fractional CTO", "location": "Germany"},
     {"search_term": "interim Geschäftsführer", "location": "Germany"},
-    # C-level direct hires (Arteq can convertible-pitch these)
+    # C-level direct hires (A-Line can convertible-pitch these)
     {"search_term": "Head of Finance", "location": "Berlin"},
     {"search_term": "VP Finance", "location": "Germany"},
     {"search_term": "Head of People", "location": "Berlin"},
@@ -704,9 +704,9 @@ def claude_analyze(job):
     if not ANTHROPIC_KEY:
         return None
 
-    prompt = f"""Du bist Lead-Qualification-Agent für Arteq, eine DACH-Fractional/Interim-Executive-Vermittlung.
+    prompt = f"""Du bist Lead-Qualification-Agent für A-Line, eine DACH-Fractional/Interim-Executive-Vermittlung.
 
-WICHTIG: Arteq ist selbst eine Vermittlung. Wir suchen DIREKTE Mandanten (Firmen die selbst einen Interim/Fractional Executive brauchen), NICHT andere Personalberatungen oder Interim-Management-Agenturen.
+WICHTIG: A-Line ist selbst eine Vermittlung. Wir suchen DIREKTE Mandanten (Firmen die selbst einen Interim/Fractional Executive brauchen), NICHT andere Personalberatungen oder Interim-Management-Agenturen.
 
 Analysiere dieses Jobposting:
 
@@ -876,7 +876,7 @@ def enrich_company(job):
                     break
 
     # Step 2: Claude enrichment
-    prompt = f"""Du bist Company-Research-Agent für Arteq, eine DACH-Fractional/Interim-Executive-Vermittlung.
+    prompt = f"""Du bist Company-Research-Agent für A-Line, eine DACH-Fractional/Interim-Executive-Vermittlung.
 
 Analysiere diese Firma und extrahiere alle verfügbaren Informationen.
 
@@ -904,7 +904,7 @@ Antworte NUR in validem JSON (kein Markdown, keine Backticks):
   "urgency": "high | medium | low",
   "urgency_reason": "Warum diese Einschätzung? (1 Satz)",
   "arteq_fit": "high | medium | low",
-  "arteq_fit_reason": "Ist das ein guter Arteq-Mandant? Warum? (1 Satz)",
+  "arteq_fit_reason": "Ist das ein guter A-Line-Mandant? Warum? (1 Satz)",
   "decision_maker_title": "Wahrscheinlicher Ansprechpartner-Titel (z.B. CEO, Head of HR, VP People)",
   "key_facts": ["Fakt 1", "Fakt 2", "Fakt 3"]
 }}
@@ -912,7 +912,7 @@ Antworte NUR in validem JSON (kein Markdown, keine Backticks):
 REGELN:
 - Wenn Infos nicht verfügbar → "unknown" statt raten
 - Hiring Signal sollte KONKRET sein: "Schnelles Wachstum nach Series B braucht erfahrenen CFO für IPO-Vorbereitung" > "Firma sucht CFO"
-- Arteq-Fit = high wenn: Startup/Scaleup, DACH, C-Level/Leadership, kein Big Corp
+- A-Line-Fit = high wenn: Startup/Scaleup, DACH, C-Level/Leadership, kein Big Corp
 - Urgency = high wenn: Interim/Fractional in Titel, Elternzeitvertretung, "sofort", funded startup"""
 
     try:
@@ -1603,7 +1603,7 @@ def main():
     use_ai = bool(ANTHROPIC_KEY)
 
     print("\n" + "=" * 95)
-    print("  ARTEQ JOB SIGNAL SCRAPER v10 — Multi-Source Pipeline + Urgency Tracking")
+    print("  A-LINE JOB SIGNAL SCRAPER v10 — Multi-Source Pipeline + Urgency Tracking")
     print(f"  Sources: JSearch{'✓' if API_KEY else '✗'} | Arbeitnow ✓ | Jobicy ✓ | RemoteOK ✓ | JobSpy{'(+proxy)' if JOBSPY_PROXY else ' ✓'}")
     print(f"  AI Scoring: {'ON ✓' if use_ai else 'OFF'}")
     print(f"  Supabase: {'ON ✓' if SUPABASE_URL else 'OFF'}")
@@ -1923,7 +1923,7 @@ def main():
             "DM Title Guess", "DM Name", "DM LinkedIn", "DM Email", "DM Phone",
             "Stage",
             "Industry", "Funding", "Headcount", "Investors",
-            "Hiring Signal", "Arteq Fit", "Company Website",
+            "Hiring Signal", "A-Line Fit", "Company Website",
             "URL", "Posted",
         ])
         for job in unique:
@@ -2024,7 +2024,7 @@ def claude_write_email_summary(summary_data):
     if not ANTHROPIC_KEY:
         return None
 
-    prompt = f"""Du schreibst eine tägliche Zusammenfassungs-Email für Niels von Arteq (Fractional/Interim Executive Vermittlung in DACH).
+    prompt = f"""Du schreibst eine tägliche Zusammenfassungs-Email für Niels von A-Line (Fractional/Interim Executive Vermittlung in DACH).
 
 Die Email soll kurz, professionell und actionable sein. Schreibe auf Deutsch, informeller Ton (du-Form).
 
@@ -2121,7 +2121,7 @@ def send_daily_summary(jobs):
         warm = summary_data["warm_count"]
 
         email = resend.Emails.send({
-            "from": "Arteq Pipeline <onboarding@resend.dev>",
+            "from": "A-Line Pipeline <onboarding@resend.dev>",
             "to": [ALERT_EMAIL],
             "subject": f"Pipeline Update {date_str} — {hot} Hot, {warm} Warm Leads",
             "html": html_body,

@@ -1,4 +1,4 @@
-name: Arteq Daily Scrape
+name: A-Line Daily Scrape
 
 on:
   schedule:

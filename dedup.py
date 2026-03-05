@@ -1,5 +1,5 @@
 """
-Arteq Job Signal Scraper — Deduplication
+A-Line Job Signal Scraper — Deduplication
 
 Dedup key: normalize(company_name) + normalize(role_function) + country
 This catches the same role posted on multiple platforms.

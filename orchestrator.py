@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arteq Orchestrator — Agentic decision-making layer.
+A-Line Orchestrator — Agentic decision-making layer.
 
 Runs after all scrapers (quick_run, signal_scraper, company_discovery) and:
   1. Data Hygiene — expire stale roles, dedup contacts, calc signal density
@@ -115,7 +115,7 @@ def log_dossier(company_id, entry_type, title, content, source="orchestrator"):
         "title": title,
         "content": content[:2000],
         "source": source,
-        "author": "Arteq Agent",
+        "author": "A-Line Agent",
     })
 
 
@@ -398,7 +398,7 @@ def phase_scoring(config):
                     f"{c['contact']['name']} ({c['contact'].get('title', '?')}) {'✉' if c['contact'].get('email') else ''}" for c in intel["contacts"][:3]
                 ) + "\n"
 
-        prompt = f"""Du bist der AI-Agent für Arteq, eine DACH-Fractional/Interim-Executive-Vermittlung.
+        prompt = f"""Du bist der AI-Agent für A-Line, eine DACH-Fractional/Interim-Executive-Vermittlung.
 
 Bewerte diese Companies ganzheitlich. Für jede Company:
 1. composite_score (0-100): Wie vielversprechend ist diese Company als Kunde?
@@ -713,7 +713,7 @@ def build_outreach_prompt(persona, dm, co, intel, examples_text):
     first_name = dm["name"].split()[0] if dm.get("name") else "?"
     signature = persona.get("signature", "Beste Grüße,\nNiels")
 
-    prompt = f"""Du bist {persona.get('name', 'Niels')} von {persona.get('company', 'Arteq')}.
+    prompt = f"""Du bist {persona.get('name', 'Niels')} von {persona.get('company', 'A-Line')}.
 {persona.get('role', 'Fractional & Interim Executive Vermittlung im DACH-Raum')}.
 
 Tonalität: {persona.get('tone', 'Locker-professionell')}
@@ -866,7 +866,7 @@ def phase_outreach(config):
             logger.error(f"  JSON parse error for outreach to {co['name']}")
             continue
 
-        subject = email_data.get("subject", f"Arteq x {co['name']}")
+        subject = email_data.get("subject", f"A-Line x {co['name']}")
         body_html = email_data.get("body_html", "")
 
         if not body_html:
@@ -1017,7 +1017,7 @@ def phase_reply_handler(config, persona, from_email, cc_email):
         # Build conversation history for Claude
         conv_history = ""
         for msg in (thread or []):
-            sender = "Niels (Arteq)" if msg.get("direction") == "outbound" else dm.get("name", "Kontakt")
+            sender = "Niels (A-Line)" if msg.get("direction") == "outbound" else dm.get("name", "Kontakt")
             body = msg.get("raw_text") or re.sub(r"<[^>]+>", "", msg.get("body_html", ""))
             body = re.sub(r"\s+", " ", body).strip()
             conv_history += f"\n[{sender}]: {body[:500]}\n"
@@ -1027,7 +1027,7 @@ def phase_reply_handler(config, persona, from_email, cc_email):
         reply_tone = reply_style.get("tone", persona.get("tone", "Persönlich und auf Augenhöhe"))
         reply_lang = persona.get("language", "Deutsch, Du-Form")
         reply_name = persona.get("name", "Niels")
-        reply_company = persona.get("company", "Arteq")
+        reply_company = persona.get("company", "A-Line")
         dm_name = dm.get("name", "?")
         dm_title = dm.get("title", "?")
         co_name = company.get("name", "?")
@@ -1203,7 +1203,7 @@ def phase_daily_brief(config, run_results):
         "outreach_drafts": (outreach_drafts or []),
     }, indent=2, ensure_ascii=False, default=str)
 
-    prompt = f"""Schreibe eine tägliche Zusammenfassungs-Email für Niels von Arteq (Fractional/Interim Executive Vermittlung im DACH-Raum).
+    prompt = f"""Schreibe eine tägliche Zusammenfassungs-Email für Niels von A-Line (Fractional/Interim Executive Vermittlung im DACH-Raum).
 
 Deutsch, informell (du-Form), professionell, action-orientiert. Schreibe als HTML mit inline CSS (clean, modernes Design).
 
@@ -1244,10 +1244,10 @@ Starte direkt mit <div>. Kein Markdown, keine Backticks."""
             hot = sum(1 for r in new_roles if r.get("tier") == "HOT")
             subject_parts.append(f"{hot} hot leads" if hot else f"{len(new_roles)} new roles")
 
-        subject = f"Arteq Agent Brief {datetime.now().strftime('%d.%m')} — " + (", ".join(subject_parts) or "no changes")
+        subject = f"A-Line Agent Brief {datetime.now().strftime('%d.%m')} — " + (", ".join(subject_parts) or "no changes")
 
         resend.Emails.send({
-            "from": "Arteq Agent <onboarding@resend.dev>",
+            "from": "A-Line Agent <onboarding@resend.dev>",
             "to": [ALERT_EMAIL],
             "subject": subject,
             "html": html,
@@ -1264,7 +1264,7 @@ Starte direkt mit <div>. Kein Markdown, keine Backticks."""
 
 def main():
     print("\n" + "=" * 80)
-    print("  ARTEQ ORCHESTRATOR — Agentic Decision Layer")
+    print("  A-LINE ORCHESTRATOR — Agentic Decision Layer")
     print(f"  AI: {'ON ✓' if ANTHROPIC_KEY else 'OFF'}")
     print(f"  Apollo: {'ON ✓' if APOLLO_API_KEY else 'OFF'}")
     print(f"  Resend: {'ON ✓' if RESEND_API_KEY else 'OFF'}")

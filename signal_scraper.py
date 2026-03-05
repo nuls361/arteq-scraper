@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arteq Signal Scraper — Monitor hot companies for business signals.
+A-Line Signal Scraper — Monitor hot companies for business signals.
 
 Sources: TechCrunch RSS, Handelsblatt RSS, Gruenderszene RSS, DuckDuckGo News
 Writes classified signals to the Supabase `signal` table.
@@ -364,7 +364,7 @@ Summary: {a['summary']}
 Source: {a['source']}
 """
 
-        prompt = f"""You are a business signal analyst for Arteq, a DACH fractional/interim executive placement firm.
+        prompt = f"""You are a business signal analyst for A-Line, a DACH fractional/interim executive placement firm.
 
 Classify each article for signals indicating a company might need interim/fractional executives (CFO, COO, CTO, CHRO, etc.).
 
@@ -520,7 +520,7 @@ def write_signals(signals):
 
 def main():
     logger.info("=" * 60)
-    logger.info("Arteq Signal Scraper — Starting")
+    logger.info("A-Line Signal Scraper — Starting")
     logger.info("=" * 60)
 
     if not SUPABASE_URL or not SUPABASE_KEY:

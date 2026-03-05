@@ -1,5 +1,5 @@
 """
-Arteq Job Signal Scraper — Configuration
+A-Line Job Signal Scraper — Configuration
 """
 
 # ============================================================

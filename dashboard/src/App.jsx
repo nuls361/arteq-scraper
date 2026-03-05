@@ -171,7 +171,7 @@ function OutreachThread({ thread, contacts: threadContacts }) {
           }}>
             <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
               <span style={{ fontSize:12, fontWeight:600, color: isOutbound ? "#1D4ED8" : "#065F46" }}>
-                {isOutbound ? "Niels (Arteq)" : contactName}
+                {isOutbound ? "Niels (A-Line)" : contactName}
               </span>
               <span style={{
                 padding:"1px 5px", borderRadius:3, fontSize:9, fontWeight:600,
@@ -215,6 +215,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
   const [threadContacts, setThreadContacts] = useState([]);
   const [detailTab, setDetailTab] = useState("activity");
   const [enriching, setEnriching] = useState(false);
+  const [companyAgentLogs, setCompanyAgentLogs] = useState([]);
 
   const handleEnrich = async () => {
     if (enriching || !company) return;
@@ -227,7 +228,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
         title: "Enrichment requested",
         content: "Manual enrichment triggered from dashboard. Agent is analyzing this company...",
         source: "dashboard",
-        author: "Arteq Team",
+        author: "A-Line Team",
       });
       // Trigger the edge function
       const res = await fetch(`${SUPABASE_URL}/functions/v1/trigger-enrich`, {
@@ -267,6 +268,22 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
   }, [company]);
 
   useEffect(() => { loadEntries(); }, [loadEntries]);
+
+  // Load agent logs for this company
+  useEffect(() => {
+    if (!company) return;
+    (async () => {
+      try {
+        const logs = await supaFetch(
+          "agent_log",
+          `entity_id=eq.${company.id}&entity_type=eq.company&order=created_at.desc&limit=50`
+        );
+        setCompanyAgentLogs(logs || []);
+      } catch (e) {
+        console.error("Agent log load error:", e);
+      }
+    })();
+  }, [company]);
 
   // Load outreach conversation threads for this company
   useEffect(() => {
@@ -315,13 +332,15 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
         title: noteTitle.trim() || null,
         content: noteContent.trim(),
         source: "manual",
-        author: "Arteq Team",
+        author: "A-Line Team",
       });
       setNoteTitle("");
       setNoteContent("");
       await loadEntries();
+      setDetailTab("activity");
     } catch (e) {
       console.error("Save note error:", e);
+      alert("Could not save note: " + e.message);
     }
     setSaving(false);
   };
@@ -347,7 +366,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
         file_name: file.name,
         file_size: file.size,
         file_type: file.type,
-        author: "Arteq Team",
+        author: "A-Line Team",
       });
       setNoteContent("");
       await loadEntries();
@@ -394,13 +413,14 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
   const statusStyle = st[company.status] || { bg:"#F2F3F5", color:"#6B6F76" };
   const fitColors = { high:{bg:"#D1FAE5",color:"#065F46"}, medium:{bg:"#FFF0E1",color:"#AD5700"}, low:{bg:"#FDECEC",color:"#C13030"} };
 
-  // Build unified timeline: merge entries + outreach threads, sorted by date desc
+  // Build unified timeline: merge entries + outreach threads + agent logs, sorted by date desc
   const timelineItems = [];
   entries.forEach(e => timelineItems.push({ type: "entry", data: e, date: new Date(e.created_at || 0) }));
   outreachThreads.forEach(thread => {
     const lastMsg = thread[thread.length - 1];
     timelineItems.push({ type: "outreach", data: thread, date: new Date(lastMsg?.created_at || 0) });
   });
+  companyAgentLogs.forEach(log => timelineItems.push({ type: "agent_log", data: log, date: new Date(log.created_at || 0) }));
   timelineItems.sort((a, b) => b.date - a.date);
 
   return (
@@ -491,6 +511,36 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
             {/* ── Activity Tab ── */}
             {detailTab === "activity" && (
               <>
+                {/* Company Summary Card */}
+                {!person && !role && company && (
+                  <div style={{ background:"#F7F7F8", borderRadius:10, padding:"16px 18px", marginBottom:20 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                      <div style={{ width:36, height:36, borderRadius:8, background:"#1A1A1A", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:800, fontSize:15, flexShrink:0 }}>
+                        {company.name?.charAt(0) || "?"}
+                      </div>
+                      <div>
+                        <div style={{ fontSize:14, fontWeight:700, color:"#1A1A1A" }}>{company.name}</div>
+                        <div style={{ fontSize:11, color:"#6B6F76" }}>
+                          {[company.industry, company.hq_city, company.headcount ? `~${company.headcount} employees` : null].filter(Boolean).join(" · ") || "—"}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                      {company.funding_stage && company.funding_stage !== "unknown" && (
+                        <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background:"#DBEAFE", color:"#1D4ED8" }}>{company.funding_stage}</span>
+                      )}
+                      {company.composite_score != null && (
+                        <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background:"#F2F3F5", color:"#1A1A1A" }}>Score: {company.composite_score}</span>
+                      )}
+                      {companyRoles.length > 0 && (
+                        <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background:"#EDE9FE", color:"#6D28D9" }}>{companyRoles.length} {companyRoles.length === 1 ? "role" : "roles"}</span>
+                      )}
+                      {contacts.length > 0 && (
+                        <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background:"#D1FAE5", color:"#065F46" }}>{contacts.length} {contacts.length === 1 ? "contact" : "contacts"}</span>
+                      )}
+                    </div>
+                  </div>
+                )}
                 {loading ? (
                   <div style={{ padding:40, textAlign:"center", color:"#A0A3A9", fontSize:13 }}>Loading…</div>
                 ) : timelineItems.length === 0 ? (
@@ -505,6 +555,45 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                     <div style={{ position:"absolute", left:11, top:8, bottom:8, width:2, background:"#EBEBED" }} />
 
                     {timelineItems.map((item, idx) => {
+                      if (item.type === "agent_log") {
+                        const log = item.data;
+                        const ACTION_STYLE = {
+                          promote_company:   { icon:"⬆", bg:"#D1FAE5", color:"#065F46", label:"Promoted" },
+                          downgrade_company: { icon:"⬇", bg:"#FDECEC", color:"#C13030", label:"Downgraded" },
+                          expire_role:       { icon:"⏰", bg:"#FFF0E1", color:"#AD5700", label:"Expired" },
+                          enrich_single:     { icon:"✨", bg:"#EDE9FE", color:"#6D28D9", label:"Enriched" },
+                          enrich_contact:    { icon:"✉", bg:"#EDE9FE", color:"#6D28D9", label:"Enriched" },
+                          outreach_draft:    { icon:"📝", bg:"#DBEAFE", color:"#1D4ED8", label:"Draft" },
+                          outreach_sent:     { icon:"📨", bg:"#D1FAE5", color:"#065F46", label:"Sent" },
+                          sdr_handoff_ae:    { icon:"🤝", bg:"#EDE9FE", color:"#6D28D9", label:"Handoff" },
+                        };
+                        const ast = ACTION_STYLE[log.action] || { icon:"🤖", bg:"#F2F3F5", color:"#6B6F76", label:log.action };
+                        const logDate = log.created_at ? new Date(log.created_at) : null;
+                        return (
+                          <div key={`log-${log.id || idx}`} style={{ position:"relative", paddingLeft:32, paddingBottom:16 }}>
+                            <div style={{
+                              position:"absolute", left:4, top:4,
+                              width:16, height:16, borderRadius:"50%",
+                              background:ast.bg, border:`2px solid ${ast.color}`,
+                              display:"flex", alignItems:"center", justifyContent:"center",
+                              fontSize:8,
+                            }}>{ast.icon}</div>
+                            <div style={{ background:"#F7F7F8", borderRadius:8, padding:"12px 14px" }}>
+                              <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
+                                <span style={{ padding:"2px 6px", borderRadius:3, fontSize:10, fontWeight:600, background:ast.bg, color:ast.color }}>{ast.label}</span>
+                                <span style={{ fontSize:10, color:"#A0A3A9" }}>Agent</span>
+                                <span style={{ flex:1 }} />
+                                <span style={{ fontSize:10, color:"#A0A3A9", whiteSpace:"nowrap" }}>
+                                  {logDate ? logDate.toLocaleDateString("en-GB", { day:"numeric", month:"short", year:"numeric" }) : "—"}
+                                </span>
+                              </div>
+                              <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, whiteSpace:"pre-wrap" }}>
+                                {log.reason || "—"}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
                       if (item.type === "outreach") {
                         const thread = item.data;
                         const firstMsg = thread[0];
@@ -841,6 +930,27 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                   })}
                 </div>
               </div>
+
+              {/* Roles at this company (from person view) */}
+              {companyRoles.length > 0 && (
+                <div style={{ marginTop:20, paddingTop:16, borderTop:"1px solid #EBEBED" }}>
+                  <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:10 }}>Open Roles ({companyRoles.length})</div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                    {companyRoles.map(r => (
+                      <div key={r.id} onClick={() => onOpenRole && onOpenRole(r)} style={{
+                        display:"flex", alignItems:"center", gap:8, padding:"8px 10px",
+                        background:"#F7F7F8", borderRadius:6, cursor:"pointer", fontSize:12,
+                      }}
+                        onMouseEnter={e => e.currentTarget.style.background="#EBEBED"}
+                        onMouseLeave={e => e.currentTarget.style.background="#F7F7F8"}>
+                        <TierPill tier={r.tier} />
+                        <span style={{ fontWeight:600, color:"#1A1A1A", flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.title}</span>
+                        <Score v={r.final_score ?? r.rule_score} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           ) : role ? (
             <>
@@ -967,42 +1077,68 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
             </>
           ) : (
             <>
-              {/* Company Details */}
-              <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:12 }}>Details</div>
-              <div style={{ display:"grid", gridTemplateColumns:"100px 1fr", gap:"8px 12px", fontSize:12 }}>
+              {/* Company Details — Grouped Sections */}
+
+              {/* Score + Status header */}
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:16, flexWrap:"wrap" }}>
+                <span style={{ padding:"3px 10px", borderRadius:4, fontSize:12, fontWeight:600, background:statusStyle.bg, color:statusStyle.color }}>{company.status || "—"}</span>
+                {company.arteq_fit && fitColors[company.arteq_fit] && (
+                  <span style={{ padding:"3px 10px", borderRadius:4, fontSize:12, fontWeight:600, background:fitColors[company.arteq_fit].bg, color:fitColors[company.arteq_fit].color }}>{company.arteq_fit} fit</span>
+                )}
+                {company.composite_score != null && (
+                  <span style={{ padding:"3px 10px", borderRadius:4, fontSize:12, fontWeight:600, background:"#F2F3F5", color:"#1A1A1A" }}>Score: {company.composite_score}</span>
+                )}
+              </div>
+
+              {/* Overview */}
+              <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:8 }}>Overview</div>
+              <div style={{ display:"grid", gridTemplateColumns:"90px 1fr", gap:"6px 12px", fontSize:12, marginBottom:18 }}>
                 {[
-                  ["Domain", company.domain || "—"],
-                  ["Status", company.status],
+                  ["Domain", company.domain ? <a href={`https://${company.domain}`} target="_blank" rel="noopener" style={{ fontSize:12, color:"#5B5FC7", textDecoration:"none" }}>{company.domain} ↗</a> : "—"],
                   ["Industry", company.industry || "—"],
-                  ["Fit", company.arteq_fit],
-                  ["Funding", company.funding_stage && company.funding_stage !== "unknown" ? company.funding_stage : "—"],
-                  ["Headcount", company.headcount || "—"],
                   ["HQ", company.hq_city || "—"],
                   ["Founded", company.founded_year || "—"],
-                  ["Pipeline", company.pipeline_stage],
-                  ["Agent", company.agent_owner || "—"],
-                  ["Agency", company.is_agency ? "Yes" : "No"],
-                  ["Added", company.created_at ? new Date(company.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : "—"],
-                ].map(([label, value]) => {
-                  let rendered = value || "—";
-                  if (label === "Status" && value) {
-                    rendered = <span style={{ padding:"2px 6px", borderRadius:3, fontSize:11, fontWeight:500, background:statusStyle.bg, color:statusStyle.color }}>{value}</span>;
-                  } else if (label === "Fit" && value && fitColors[value]) {
-                    rendered = <span style={{ padding:"2px 6px", borderRadius:3, fontSize:11, fontWeight:500, background:fitColors[value].bg, color:fitColors[value].color }}>{value}</span>;
-                  } else if (label === "Pipeline" && value) {
-                    const pBg = {"sdr_outreach":"#DBEAFE","sdr_followup":"#DBEAFE","qualified":"#D1FAE5","meeting_prep":"#FEF3C7","meeting_done":"#FEF3C7","proposal":"#EDE9FE","closed_won":"#D1FAE5","closed_lost":"#FDECEC","nurture":"#F2F3F5"}[value] || "#F2F3F5";
-                    const pColor = {"sdr_outreach":"#1D4ED8","sdr_followup":"#1D4ED8","qualified":"#065F46","meeting_prep":"#92400E","meeting_done":"#92400E","proposal":"#6D28D9","closed_won":"#065F46","closed_lost":"#C13030","nurture":"#6B6F76"}[value] || "#6B6F76";
-                    rendered = <span style={{ padding:"2px 6px", borderRadius:3, fontSize:11, fontWeight:600, background:pBg, color:pColor }}>{value.replace(/_/g," ")}</span>;
-                  } else if (label === "Agency" && company.is_agency) {
-                    rendered = <span style={{ color:"#E5484D", fontWeight:600 }}>Yes</span>;
-                  }
-                  return (
+                  ["Headcount", company.headcount || "—"],
+                ].map(([label, value]) => (
+                  <div key={label} style={{ display:"contents" }}>
+                    <div style={{ color:"#A0A3A9", fontSize:12 }}>{label}</div>
+                    <div style={{ color:"#1A1A1A" }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Business */}
+              <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:8 }}>Business</div>
+              <div style={{ display:"grid", gridTemplateColumns:"90px 1fr", gap:"6px 12px", fontSize:12, marginBottom:18 }}>
+                {[
+                  ["Funding", company.funding_stage && company.funding_stage !== "unknown" ? company.funding_stage : "—"],
+                  ["Investors", company.investors || "—"],
+                  ["Revenue", company.revenue || "—"],
+                ].map(([label, value]) => (
+                  <div key={label} style={{ display:"contents" }}>
+                    <div style={{ color:"#A0A3A9", fontSize:12 }}>{label}</div>
+                    <div style={{ color:"#1A1A1A" }}>{value || "—"}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Pipeline */}
+              <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:8 }}>Pipeline</div>
+              <div style={{ display:"grid", gridTemplateColumns:"90px 1fr", gap:"6px 12px", fontSize:12, marginBottom:18 }}>
+                {(() => {
+                  const pBg = {"sdr_outreach":"#DBEAFE","sdr_followup":"#DBEAFE","qualified":"#D1FAE5","meeting_prep":"#FEF3C7","meeting_done":"#FEF3C7","proposal":"#EDE9FE","closed_won":"#D1FAE5","closed_lost":"#FDECEC","nurture":"#F2F3F5"}[company.pipeline_stage] || "#F2F3F5";
+                  const pColor = {"sdr_outreach":"#1D4ED8","sdr_followup":"#1D4ED8","qualified":"#065F46","meeting_prep":"#92400E","meeting_done":"#92400E","proposal":"#6D28D9","closed_won":"#065F46","closed_lost":"#C13030","nurture":"#6B6F76"}[company.pipeline_stage] || "#6B6F76";
+                  return [
+                    ["Pipeline", company.pipeline_stage ? <span style={{ padding:"2px 6px", borderRadius:3, fontSize:11, fontWeight:600, background:pBg, color:pColor }}>{company.pipeline_stage.replace(/_/g," ")}</span> : "—"],
+                    ["Agent", company.agent_owner || "—"],
+                    ["Added", company.created_at ? new Date(company.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : "—"],
+                  ].map(([label, value]) => (
                     <div key={label} style={{ display:"contents" }}>
                       <div style={{ color:"#A0A3A9", fontSize:12 }}>{label}</div>
-                      <div style={{ color:"#1A1A1A" }}>{rendered}</div>
+                      <div style={{ color:"#1A1A1A" }}>{value || "—"}</div>
                     </div>
-                  );
-                })}
+                  ));
+                })()}
               </div>
 
               {/* Enrich Button */}
@@ -1049,7 +1185,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
   );
 }
 
-export default function ArteqCRM() {
+export default function ALineCRM() {
   const [roles, setRoles] = useState([]);
   const [companies, setCompanies] = useState([]);
   const [contacts, setContacts] = useState({});  // company_id → primary contact
@@ -1242,7 +1378,7 @@ export default function ArteqCRM() {
       <div style={{ width:210, borderRight:"1px solid #EBEBED", padding:"16px 10px", display:"flex", flexDirection:"column", background:"#FAFAFA", flexShrink:0 }}>
         <div style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 10px", marginBottom:28 }}>
           <div style={{ width:24, height:24, borderRadius:6, background:"#1A1A1A", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:800, fontSize:12 }}>A</div>
-          <span style={{ fontWeight:700, fontSize:15, letterSpacing:-0.5 }}>Arteq</span>
+          <span style={{ fontWeight:700, fontSize:15, letterSpacing:-0.5 }}>A-Line</span>
         </div>
 
         <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, padding:"0 10px", marginBottom:8 }}>Pipeline</div>
@@ -1258,26 +1394,6 @@ export default function ArteqCRM() {
             fontSize:13, fontWeight:tab===n.key?600:400, cursor:"pointer", marginBottom:1,
           }}>
             <span style={{ fontSize:14, width:18, textAlign:"center", opacity:0.6 }}>{n.icon}</span>
-            <span style={{ flex:1 }}>{n.label}</span>
-            <span style={{ fontSize:11, color:"#A0A3A9" }}>{n.count}</span>
-          </div>
-        ))}
-
-        <div style={{ height:20 }} />
-        <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, padding:"0 10px", marginBottom:8 }}>Views</div>
-
-        {[
-          { icon:"●", label:"Hot leads", count:tierCounts.hot||0, color:"#E5484D", tier:"hot" },
-          { icon:"●", label:"Warm leads", count:tierCounts.warm||0, color:"#F5A623", tier:"warm" },
-          { icon:"●", label:"Parked", count:tierCounts.parked||0, color:"#A0A3A9", tier:"parked" },
-        ].map(n => (
-          <div key={n.label} onClick={() => { setTab("roles"); setTierFilter(tierFilter===n.tier?"all":n.tier); }} style={{
-            display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:6,
-            background: tierFilter===n.tier?"#EBEBED":"transparent",
-            color:tierFilter===n.tier?"#1A1A1A":"#6B6F76",
-            fontSize:13, fontWeight:tierFilter===n.tier?600:400, cursor:"pointer", marginBottom:1,
-          }}>
-            <span style={{ fontSize:8, color:n.color }}>●</span>
             <span style={{ flex:1 }}>{n.label}</span>
             <span style={{ fontSize:11, color:"#A0A3A9" }}>{n.count}</span>
           </div>
@@ -1492,8 +1608,6 @@ export default function ArteqCRM() {
                     <ColHead width={110}>Phone</ColHead>
                     <ColHead width={70}>LinkedIn</ColHead>
                     <ColHead width={85}>Source</ColHead>
-                    <ColHead width={55}>DM</ColHead>
-                    <ColHead width={90}>Seniority</ColHead>
                     <ColHead width={80} sk="created_at" sort={sort} onSort={doSort}>Added</ColHead>
                   </tr>
                 </thead>
@@ -1524,12 +1638,6 @@ export default function ArteqCRM() {
                           {p.linkedin_url ? <a href={p.linkedin_url} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{ padding:"3px 8px", borderRadius:4, background:"#0A66C2", color:"#fff", fontSize:10, fontWeight:600, textDecoration:"none" }}>LinkedIn</a> : <span style={{ color:"#A0A3A9", fontSize:12 }}>—</span>}
                         </td>
                         <td style={{ padding:"9px 14px" }}><SourcePill source={p.source} /></td>
-                        <td style={{ padding:"9px 14px" }}>
-                          {p.is_decision_maker ? <span style={{ fontSize:9, fontWeight:700, padding:"2px 6px", borderRadius:3, background:"#FDECEC", color:"#C13030" }}>DM</span> : <span style={{ color:"#A0A3A9", fontSize:12 }}>—</span>}
-                        </td>
-                        <td style={{ padding:"9px 14px" }}>
-                          {p.seniority ? <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background:"#F2F3F5", color:"#6B6F76" }}>{p.seniority}</span> : <span style={{ color:"#A0A3A9", fontSize:12 }}>—</span>}
-                        </td>
                         <td style={{ padding:"9px 14px", color:"#A0A3A9", fontSize:12, whiteSpace:"nowrap" }}>
                           {p.created_at ? new Date(p.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short"}) : "—"}
                         </td>
@@ -1554,9 +1662,7 @@ export default function ArteqCRM() {
                     <ColHead width={100}>Status</ColHead>
                     <ColHead width={150} sk="industry" sort={sort} onSort={doSort}>Industry</ColHead>
                     <ColHead width={90}>Fit</ColHead>
-                    <ColHead width={120} sk="funding_stage" sort={sort} onSort={doSort}>Funding</ColHead>
                     <ColHead width={90} sk="headcount" sort={sort} onSort={doSort}>Headcount</ColHead>
-                    <ColHead width={80}>Agency</ColHead>
                     <ColHead width={90} sk="created_at" sort={sort} onSort={doSort}>Added</ColHead>
                   </tr>
                 </thead>
@@ -1571,7 +1677,6 @@ export default function ArteqCRM() {
                         onMouseLeave={e => e.currentTarget.style.background="transparent"}>
                         <td style={{ padding:"9px 14px" }}>
                           <div style={{ fontWeight:600, fontSize:13 }}>{c.name}</div>
-                          {c.website && <a href={c.website.startsWith("http")?c.website:`https://${c.website}`} target="_blank" rel="noopener" style={{ fontSize:11, color:"#5B5FC7", textDecoration:"none" }}>{c.domain || c.website}</a>}
                         </td>
                         <td style={{ padding:"9px 14px" }}>
                           <span style={{ padding:"3px 8px", borderRadius:4, fontSize:12, fontWeight:500, background:st.bg, color:st.color }}>{st.label}</span>
@@ -1581,13 +1686,7 @@ export default function ArteqCRM() {
                           {fit ? <span style={{ padding:"3px 8px", borderRadius:4, fontSize:12, fontWeight:500, background:fit.bg, color:fit.color }}>{c.arteq_fit}</span>
                             : <span style={{ color:"#A0A3A9", fontSize:12 }}>—</span>}
                         </td>
-                        <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12 }}>
-                          {c.funding_stage && c.funding_stage !== "unknown" ? c.funding_stage : "—"}
-                        </td>
                         <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12 }}>{c.headcount||"—"}</td>
-                        <td style={{ padding:"9px 14px" }}>
-                          {c.is_agency ? <span style={{ fontSize:11, fontWeight:600, color:"#E5484D" }}>⚠ Yes</span> : <span style={{ fontSize:11, color:"#30A46C" }}>✓ No</span>}
-                        </td>
                         <td style={{ padding:"9px 14px", color:"#A0A3A9", fontSize:12, whiteSpace:"nowrap" }}>
                           {c.created_at ? new Date(c.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short"}) : "—"}
                         </td>

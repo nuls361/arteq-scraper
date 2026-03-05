@@ -1,4 +1,4 @@
-name: Arteq Healthcheck
+name: A-Line Healthcheck
 
 on:
   schedule:

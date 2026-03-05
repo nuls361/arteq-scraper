@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arteq Company Discovery — Proactively find promising companies.
+A-Line Company Discovery — Proactively find promising companies.
 
 Sources:
   1. Funding RSS feeds (deutsche-startups.de, eu-startups.com, TechCrunch)
@@ -198,7 +198,7 @@ Für JEDEN Artikel wo eine DACH-Company identifizierbar ist, extrahiere:
 - investors: Investoren falls genannt, sonst null
 - hq_city: Standort falls erkennbar, sonst null
 - country: DE/AT/CH falls erkennbar
-- summary: 1 Satz warum die Company für Arteq interessant sein könnte
+- summary: 1 Satz warum die Company für A-Line interessant sein könnte
 - arteq_fit: high/medium/low — wie wahrscheinlich brauchen sie Interim/Fractional Executives?
   (high = gerade Funding bekommen + wachsen schnell, medium = interessant aber unklar, low = zu früh/zu groß/nicht passend)
 - article_url: URL des Artikels
@@ -354,7 +354,7 @@ def analyze_tech_stack(domain):
 
     try:
         resp = requests.get(url, timeout=10, headers={
-            "User-Agent": "Mozilla/5.0 (compatible; ArteqBot/1.0)",
+            "User-Agent": "Mozilla/5.0 (compatible; A-LineBot/1.0)",
         }, allow_redirects=True)
 
         html = resp.text[:50000].lower()
@@ -555,7 +555,7 @@ def save_growth_signals(growth_signals):
 
 def main():
     print("\n" + "=" * 80)
-    print("  ARTEQ COMPANY DISCOVERY — Find Promising Companies")
+    print("  A-LINE COMPANY DISCOVERY — Find Promising Companies")
     print(f"  Sources: Funding RSS ✓ | Apollo Headcount {'✓' if APOLLO_API_KEY else '✗'} | Tech Stack ✓")
     print(f"  AI: {'ON ✓' if ANTHROPIC_KEY else 'OFF'}")
     print(f"  Supabase: {'ON ✓' if SUPABASE_URL else 'OFF'}")

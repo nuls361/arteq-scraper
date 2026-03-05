@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arteq Single Company Enrichment — Triggered via GitHub Actions dispatch.
+A-Line Single Company Enrichment — Triggered via GitHub Actions dispatch.
 
 Reuses orchestrator functions to evaluate a single company:
   1. Fetch company record
@@ -173,7 +173,7 @@ def enrich_company(company_id):
             f"{c['contact']['name']} ({c['contact'].get('title', '?')}) {'mail' if c['contact'].get('email') else ''}" for c in intel["contacts"][:3]
         ) + "\n"
 
-    prompt = f"""Du bist der AI-Agent für Arteq, eine DACH-Fractional/Interim-Executive-Vermittlung.
+    prompt = f"""Du bist der AI-Agent für A-Line, eine DACH-Fractional/Interim-Executive-Vermittlung.
 
 Bewerte diese Company ganzheitlich:
 1. composite_score (0-100): Wie vielversprechend ist diese Company als Kunde?
@@ -244,7 +244,7 @@ Antworte NUR in validem JSON:
         "title": f"Manual Enrichment — Score: {score}/100",
         "content": dossier_content[:2000],
         "source": "enrich_single",
-        "author": "Arteq Agent",
+        "author": "A-Line Agent",
     })
 
     # Log to agent_log

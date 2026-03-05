@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arteq Healthcheck — Monitor system health 4x daily.
+A-Line Healthcheck — Monitor system health 4x daily.
 
 Checks:
   1. Supabase API reachable + data freshness
@@ -216,7 +216,7 @@ def send_alert(checks):
     severity = "ERROR" if errors else "WARNING"
 
     html = f"""<div style="font-family:Inter,sans-serif;max-width:600px;margin:0 auto;padding:20px">
-    <h2 style="color:{'#C13030' if errors else '#AD5700'};margin:0 0 16px">Arteq System {severity}</h2>
+    <h2 style="color:{'#C13030' if errors else '#AD5700'};margin:0 0 16px">A-Line System {severity}</h2>
     <p style="color:#6B6F76;font-size:13px;margin:0 0 20px">{datetime.now().strftime('%d.%m.%Y %H:%M')} UTC</p>
     <table style="width:100%;border-collapse:collapse;font-size:13px">
     <tr style="background:#F7F7F8"><th style="text-align:left;padding:8px">Check</th><th style="text-align:left;padding:8px">Status</th><th style="text-align:left;padding:8px">Details</th></tr>"""
@@ -235,9 +235,9 @@ def send_alert(checks):
         import resend
         resend.api_key = RESEND_API_KEY
         resend.Emails.send({
-            "from": "Arteq System <onboarding@resend.dev>",
+            "from": "A-Line System <onboarding@resend.dev>",
             "to": [ALERT_EMAIL],
-            "subject": f"⚠ Arteq {severity}: {', '.join(name for name, _ in (errors or warnings))}",
+            "subject": f"⚠ A-Line {severity}: {', '.join(name for name, _ in (errors or warnings))}",
             "html": html,
         })
         logger.info(f"  Alert sent to {ALERT_EMAIL}")
@@ -247,7 +247,7 @@ def send_alert(checks):
 
 def run_healthcheck():
     """Run all health checks and return results dict."""
-    logger.info("\n💓 ARTEQ HEALTHCHECK")
+    logger.info("\n💓 A-LINE HEALTHCHECK")
 
     checks = {
         "Supabase": check_supabase(),

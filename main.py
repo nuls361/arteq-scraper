@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arteq Job Signal Scraper — Main Orchestration
+A-Line Job Signal Scraper — Main Orchestration
 
 Daily pipeline:
 1. Scrape jobs from JSearch (API) + Wellfound (web)
@@ -34,7 +34,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-logger = logging.getLogger("arteq-scraper")
+logger = logging.getLogger("a-line-scraper")
 
 
 def run_pipeline(source: str = "all", dry_run: bool = False, max_queries: int = 6):
@@ -43,7 +43,7 @@ def run_pipeline(source: str = "all", dry_run: bool = False, max_queries: int = 
     errors = []
     
     logger.info("=" * 60)
-    logger.info("Arteq Job Signal Scraper — Starting")
+    logger.info("A-Line Job Signal Scraper — Starting")
     logger.info(f"Source: {source} | Dry run: {dry_run} | Max queries: {max_queries}")
     logger.info("=" * 60)
 
@@ -174,7 +174,7 @@ def print_results(jobs: list[dict]):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Arteq Job Signal Scraper")
+    parser = argparse.ArgumentParser(description="A-Line Job Signal Scraper")
     parser.add_argument("--source", choices=["all", "jsearch", "wellfound"],
                        default="all", help="Which sources to scrape")
     parser.add_argument("--dry-run", action="store_true",

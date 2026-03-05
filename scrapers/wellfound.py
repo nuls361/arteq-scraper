@@ -1,5 +1,5 @@
 """
-Arteq Job Signal Scraper — Wellfound (ex-AngelList) Scraper
+A-Line Job Signal Scraper — Wellfound (ex-AngelList) Scraper
 Free: No API key required, direct web scraping
 Focus: Startup/Scale-up executive roles in DACH
 """
