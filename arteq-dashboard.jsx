@@ -524,6 +524,17 @@ function CompanyDossier({ company, contacts = [], onClose, onContactsChanged }) 
                 {company.funding_stage && company.funding_stage !== "unknown" && (
                   <span style={{ padding:"3px 8px", borderRadius:4, fontSize:12, fontWeight:500, background:"#F2F3F5", color:"#6B6F76" }}>{company.funding_stage}</span>
                 )}
+                {company.pipeline_stage && company.pipeline_stage !== "prospect" && (
+                  <span style={{ padding:"3px 8px", borderRadius:4, fontSize:12, fontWeight:600,
+                    background: {"sdr_outreach":"#DBEAFE","sdr_followup":"#DBEAFE","qualified":"#D1FAE5","meeting_prep":"#FEF3C7","meeting_done":"#FEF3C7","proposal":"#EDE9FE","closed_won":"#D1FAE5","closed_lost":"#FDECEC","nurture":"#F2F3F5"}[company.pipeline_stage] || "#F2F3F5",
+                    color: {"sdr_outreach":"#1D4ED8","sdr_followup":"#1D4ED8","qualified":"#065F46","meeting_prep":"#92400E","meeting_done":"#92400E","proposal":"#6D28D9","closed_won":"#065F46","closed_lost":"#C13030","nurture":"#6B6F76"}[company.pipeline_stage] || "#6B6F76",
+                  }}>{company.pipeline_stage.replace(/_/g, " ")}</span>
+                )}
+                {company.agent_owner && company.agent_owner !== "sdr" && (
+                  <span style={{ padding:"3px 8px", borderRadius:4, fontSize:12, fontWeight:600, background:"#EDE9FE", color:"#6D28D9" }}>
+                    {company.agent_owner === "ae" ? "AE" : company.agent_owner}
+                  </span>
+                )}
               </div>
             </div>
             <button onClick={onClose} style={{
@@ -1159,6 +1170,10 @@ export default function ArteqCRM() {
                     outreach_sent:     { icon:"📨", bg:"#D1FAE5", color:"#065F46", label:"Sent" },
                     outreach_reply:    { icon:"💬", bg:"#D1FAE5", color:"#065F46", label:"Auto-Reply" },
                     inbound_reply:     { icon:"📩", bg:"#FEF3C7", color:"#92400E", label:"Reply Received" },
+                    sdr_handoff_ae:    { icon:"🤝", bg:"#EDE9FE", color:"#6D28D9", label:"SDR → AE" },
+                    ae_response:       { icon:"🎯", bg:"#D1FAE5", color:"#065F46", label:"AE Response" },
+                    ae_meeting_prep:   { icon:"📋", bg:"#FEF3C7", color:"#92400E", label:"Meeting Prep" },
+                    ae_proposal:       { icon:"📄", bg:"#EDE9FE", color:"#6D28D9", label:"Proposal" },
                   };
                   // Group by date
                   const groups = {};

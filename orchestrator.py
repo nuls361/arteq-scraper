@@ -1299,8 +1299,21 @@ def main():
     # Phase 3: Budget-Aware Enrichment
     run_results["enrichment"] = phase_enrichment(config)
 
-    # Phase 4: Auto-Outreach
-    run_results["outreach"] = phase_outreach(config)
+    # Phase 4a: SDR Agent (cold outreach + reply handling)
+    try:
+        import sdr_agent
+        run_results["sdr"] = sdr_agent.run(config)
+    except Exception as exc:
+        logger.error(f"  SDR Agent error: {exc}")
+        run_results["sdr"] = {}
+
+    # Phase 4b: AE Agent (qualified leads + meeting prep + proposals)
+    try:
+        import ae_agent
+        run_results["ae"] = ae_agent.run(config)
+    except Exception as exc:
+        logger.error(f"  AE Agent error: {exc}")
+        run_results["ae"] = {}
 
     # Phase 5: Daily Brief
     phase_daily_brief(config, run_results)
@@ -1311,12 +1324,15 @@ def main():
     h = run_results.get("hygiene", {})
     s = run_results.get("scoring", {})
     e = run_results.get("enrichment", {})
-    o = run_results.get("outreach", {})
+    sdr = run_results.get("sdr", {})
+    ae = run_results.get("ae", {})
     print(f"  Hygiene: {h.get('roles_expired', 0)} expired, {h.get('contacts_deduped', 0)} deduped")
     print(f"  Scoring: {s.get('evaluated', 0)} evaluated, {s.get('promoted', 0)} promoted, {s.get('downgraded', 0)} downgraded")
     print(f"  Enrichment: {e.get('enriched', 0)} contacts ({e.get('credits_used', 0)} credits)")
-    print(f"  Outreach: {o.get('drafts_created', 0)} drafts, {o.get('emails_sent', 0)} sent, "
-          f"{o.get('replies_processed', 0)} replies, {o.get('followups_sent', 0)} follow-ups")
+    print(f"  SDR: {sdr.get('emails_sent', 0)} sent, {sdr.get('drafts_created', 0)} drafts, "
+          f"{sdr.get('replies_processed', 0)} replies, {sdr.get('handoffs', 0)} handoffs")
+    print(f"  AE:  {ae.get('responses_sent', 0)} responses, {ae.get('briefings_created', 0)} briefings, "
+          f"{ae.get('proposals_created', 0)} proposals")
     print(f"{'='*80}\n")
 
 
