@@ -472,18 +472,21 @@ def write_signals(signals):
 
     for s in signals:
         record = {
-            "company_id": s["company_id"],
-            "company_name_raw": s["company_name"],
+            "company_id": s.get("company_id"),
+            "company_name_raw": s.get("company_name", ""),
             "type": s.get("signal_type", "other"),
-            "source": s["source"],
-            "source_url": s["source_url"],
-            "title": s["title"][:500],
+            "source": s.get("source", "unknown"),
+            "source_url": s.get("source_url", ""),
+            "title": (s.get("title", "") or "")[:500],
             "description": s.get("ai_description", s.get("summary", ""))[:2000],
             "relevance_score": s.get("relevance_score", 50),
             "urgency": s.get("urgency", "medium"),
             "detected_at": now,
             "processed": False,
         }
+        if not record["company_id"]:
+            logger.warning(f"Skipping signal with no company_id: {record['title'][:60]}")
+            continue
 
         result = supabase_request("POST", "signal", data=record)
         if result:
@@ -527,8 +530,16 @@ def main():
     # Step 1: Get hot companies
     companies = get_hot_companies()
     if not companies:
-        logger.info("No hot companies found — nothing to do")
-        return
+        logger.warning("No hot companies found — falling back to top 20 companies by score")
+        companies = supabase_request("GET", "company", params={
+            "select": "id,name,domain",
+            "order": "composite_score.desc.nullslast",
+            "limit": "20",
+        }) or []
+        if not companies:
+            logger.info("No companies at all — nothing to do")
+            return
+        logger.info(f"Fallback: using {len(companies)} companies by composite_score")
 
     # Step 2: Scan RSS feeds
     rss_articles = scan_rss_feeds(companies)
@@ -557,7 +568,14 @@ def main():
     written = write_signals(classified)
 
     logger.info("=" * 60)
-    logger.info(f"Signal Scraper complete — {written} new signals written")
+    logger.info("SIGNAL SCRAPER SUMMARY")
+    logger.info(f"  Companies scanned:     {len(companies)}")
+    logger.info(f"  RSS articles matched:  {len(rss_articles)}")
+    logger.info(f"  DDG articles found:    {len(ddg_articles)}")
+    logger.info(f"  After keyword filter:  {len(filtered)}")
+    logger.info(f"  After dedup:           {len(new_articles)}")
+    logger.info(f"  Claude classified:     {len(classified)}")
+    logger.info(f"  Signals written:       {written}")
     logger.info("=" * 60)
 
 

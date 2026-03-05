@@ -472,7 +472,7 @@ def save_discovered_companies(discoveries):
             "limit": "1",
         })
 
-        if existing and len(existing) > 0:
+        if isinstance(existing, list) and len(existing) > 0:
             company_id = existing[0]["id"]
             skipped += 1
             logger.debug(f"  {company_name} already exists — adding signal only")
@@ -499,7 +499,7 @@ def save_discovered_companies(discoveries):
             company_data = {k: v for k, v in company_data.items() if v is not None}
 
             result = supabase_request("POST", "company", data=company_data)
-            if result and len(result) > 0:
+            if isinstance(result, list) and len(result) > 0:
                 company_id = result[0]["id"]
                 created += 1
                 logger.info(f"  ✅ Created: {company_name} ({disc.get('funding_stage', '?')}, {disc.get('arteq_fit', '?')} fit)")

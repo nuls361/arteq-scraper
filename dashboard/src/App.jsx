@@ -214,6 +214,42 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
   const [outreachThreads, setOutreachThreads] = useState([]);
   const [threadContacts, setThreadContacts] = useState([]);
   const [detailTab, setDetailTab] = useState("activity");
+  const [enriching, setEnriching] = useState(false);
+
+  const handleEnrich = async () => {
+    if (enriching || !company) return;
+    setEnriching(true);
+    try {
+      // Write a temporary dossier entry so Activity tab shows the request immediately
+      await supaPost("company_dossier", {
+        company_id: company.id,
+        entry_type: "agent_action",
+        title: "Enrichment requested",
+        content: "Manual enrichment triggered from dashboard. Agent is analyzing this company...",
+        source: "dashboard",
+        author: "Arteq Team",
+      });
+      // Trigger the edge function
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/trigger-enrich`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+        },
+        body: JSON.stringify({ company_id: company.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("Enrich trigger failed:", err);
+      }
+      await loadEntries();
+    } catch (e) {
+      console.error("Enrich error:", e);
+    }
+    // Reset after 4 seconds
+    setTimeout(() => setEnriching(false), 4000);
+  };
 
   const loadEntries = useCallback(async () => {
     if (!company) return;
@@ -968,6 +1004,22 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                   );
                 })}
               </div>
+
+              {/* Enrich Button */}
+              <button
+                onClick={handleEnrich}
+                disabled={enriching}
+                style={{
+                  marginTop:20, width:"100%", padding:"10px 16px", borderRadius:8,
+                  border: enriching ? "1px solid #EBEBED" : "1px solid #5B5FC7",
+                  background: enriching ? "#F7F7F8" : "#5B5FC7",
+                  color: enriching ? "#A0A3A9" : "#fff",
+                  fontSize:13, fontWeight:600, cursor: enriching ? "default" : "pointer",
+                  fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", gap:8,
+                }}
+              >
+                {enriching ? "Enriching..." : "Enrich with AI"}
+              </button>
 
               {/* Roles at this company */}
               {companyRoles.length > 0 && (
