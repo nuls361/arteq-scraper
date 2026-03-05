@@ -25,7 +25,15 @@ from datetime import datetime, timezone
 
 import requests
 from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
+
+# Support both ddgs (new) and duckduckgo_search (old)
+try:
+    from ddgs import DDGS
+except ImportError:
+    try:
+        from duckduckgo_search import DDGS
+    except ImportError:
+        DDGS = None
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("candidate_pipeline")
@@ -681,6 +689,62 @@ def scrape_marketplaces():
 # SOURCE 3: Substack / LinkedIn / Medium (Thought Leaders)
 # ═══════════════════════════════════════════════════════════
 
+def search_via_ddgs(query, max_results=20):
+    """Search using DDG with fallback."""
+    if DDGS is None:
+        logger.warning("No DDG search library available")
+        return []
+
+    try:
+        ddgs = DDGS()
+        results = list(ddgs.text(query, max_results=max_results))
+        return results or []
+    except Exception as e:
+        logger.warning(f"DDG search failed: {e}")
+        return []
+
+
+def search_via_bing(query, max_results=10):
+    """Direct Bing web search as DDG fallback."""
+    results = []
+    try:
+        headers = {"User-Agent": get_user_agent()}
+        resp = requests.get(
+            "https://www.bing.com/search",
+            params={"q": query, "count": str(max_results)},
+            headers=headers,
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return []
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for li in soup.find_all("li", class_="b_algo"):
+            link = li.find("a", href=True)
+            if not link:
+                continue
+            title = link.get_text(strip=True)
+            href = link["href"]
+            snippet_el = li.find("p") or li.find("div", class_="b_caption")
+            body = snippet_el.get_text(strip=True) if snippet_el else ""
+            results.append({"title": title, "href": href, "body": body})
+
+        time.sleep(1)
+    except Exception as e:
+        logger.warning(f"Bing search failed: {e}")
+
+    return results
+
+
+def web_search(query, max_results=20):
+    """Try DDG first, fall back to direct Bing scraping."""
+    results = search_via_ddgs(query, max_results)
+    if results:
+        return results
+    logger.info("DDG returned 0 results — falling back to Bing")
+    return search_via_bing(query, min(max_results, 10))
+
+
 def search_thought_leaders():
     """Find self-employed executives who publish content."""
     logger.info("SOURCE 3: Searching for thought leaders (Substack, LinkedIn, Medium)...")
@@ -700,15 +764,8 @@ def search_thought_leaders():
     ]
 
     try:
-        ddgs = DDGS()
-
         for query in queries:
-            try:
-                results = ddgs.text(query, max_results=20)
-                time.sleep(1)
-            except Exception as e:
-                logger.warning(f"DDG search failed for: {query[:50]}... — {e}")
-                continue
+            results = web_search(query, max_results=20)
 
             for r in (results or []):
                 url = r.get("href", "") or r.get("link", "")
@@ -776,42 +833,79 @@ def extract_author_name(title, body, url, source):
     name = ""
 
     if source == "substack":
-        # "Newsletter Name by Author Name" or "Author Name's Newsletter"
-        match = re.search(r" by ([A-Z][a-zA-Zäöüß\-]+ [A-Z][a-zA-Zäöüß\-]+)", title)
+        # "Title | Author Name" or "Title - Author Name" (common Bing format)
+        match = re.search(r"[\|–—-]\s*([A-Z][a-zA-Zäöüß\-']+ [A-Z][a-zA-Zäöüß\-']+)\s*$", title)
         if match:
-            name = match.group(1)
+            candidate = match.group(1).strip()
+            if candidate.lower() not in ("by substack", "on substack"):
+                name = candidate
+        # "by Author Name"
         if not name:
-            match = re.search(r"([A-Z][a-zA-Zäöüß\-]+ [A-Z][a-zA-Zäöüß\-]+)'s", title)
+            match = re.search(r"\bby\s+([A-Z][a-zA-Zäöüß\-']+ [A-Z][a-zA-Zäöüß\-']+)", title)
             if match:
                 name = match.group(1)
-        # Try URL pattern: authorname.substack.com
+        if not name:
+            match = re.search(r"\bby\s+([A-Z][a-zA-Zäöüß\-']+ [A-Z][a-zA-Zäöüß\-']+)", body)
+            if match:
+                name = match.group(1)
+        # "Author Name's Newsletter"
+        if not name:
+            match = re.search(r"([A-Z][a-zA-Zäöüß\-']+ [A-Z][a-zA-Zäöüß\-']+)'s", title)
+            if match:
+                name = match.group(1)
+        # URL pattern: authorname.substack.com
         if not name:
             match = re.search(r"https?://([a-z\-]+)\.substack\.com", url)
             if match:
-                # Convert "john-doe" to "John Doe"
                 raw = match.group(1).replace("-", " ").title()
                 if len(raw.split()) >= 2:
                     name = raw
 
     elif source == "linkedin":
-        # LinkedIn pulse: often has author in URL
+        # LinkedIn pulse new format: /pulse/title/author-slug
         match = re.search(r"linkedin\.com/pulse/[^/]+/([a-z0-9\-]+)", url)
         if match:
-            name = match.group(1).replace("-", " ").title()
+            raw = match.group(1).replace("-", " ").title()
+            parts = raw.split()
+            if len(parts) >= 2 and len(parts) <= 4:
+                name = raw
+        # "Author Name on LinkedIn" or "Author Name | LinkedIn"
         if not name:
-            match = re.search(r"([A-Z][a-zA-Zäöüß\-]+ [A-Z][a-zA-Zäöüß\-]+) on LinkedIn", title)
+            match = re.search(r"([A-Z][a-zA-Zäöüß\-']+ [A-Z][a-zA-Zäöüß\-']+)\s+(?:on|[\|–—-])\s*LinkedIn", title)
             if match:
                 name = match.group(1)
+        # "by Author Name" in body
+        if not name:
+            match = re.search(r"\bby\s+([A-Z][a-zA-Zäöüß\-']+ [A-Z][a-zA-Zäöüß\-']+)", body)
+            if match:
+                name = match.group(1)
+        # LinkedIn old pulse format: /pulse/title-author-name
+        if not name:
+            match = re.search(r"linkedin\.com/pulse/(.+?)(?:\?|$)", url)
+            if match:
+                slug = match.group(1).rstrip("/")
+                # Last 2-3 words of slug are often the author
+                parts = slug.split("-")
+                if len(parts) >= 4:
+                    candidate = " ".join(parts[-2:]).title()
+                    if len(candidate) > 5:
+                        name = candidate
 
     elif source == "medium":
-        # Medium: "@authorname" in URL or "by Author Name"
+        # Medium: "@authorname" in URL
         match = re.search(r"medium\.com/@([a-zA-Z0-9\-_.]+)", url)
         if match:
             raw = match.group(1).replace("-", " ").replace("_", " ").replace(".", " ").title()
             if len(raw.split()) >= 2:
                 name = raw
+        # "by Author Name"
         if not name:
-            match = re.search(r" by ([A-Z][a-zA-Zäöüß\-]+ [A-Z][a-zA-Zäöüß\-]+)", body)
+            match = re.search(r"\bby\s+([A-Z][a-zA-Zäöüß\-']+ [A-Z][a-zA-Zäöüß\-']+)", title + " " + body)
+            if match:
+                name = match.group(1)
+        # "Author Name | Medium" or "Author Name – Medium"
+        if not name:
+            match = re.search(r"([A-Z][a-zA-Zäöüß\-']+ [A-Z][a-zA-Zäöüß\-']+)\s*[\|–—-]\s*Medium", title)
             if match:
                 name = match.group(1)
 
@@ -821,8 +915,13 @@ def extract_author_name(title, body, url, source):
         if len(parts) < 2:
             return ""
         # Filter out generic non-name strings
-        generic = {"the", "and", "for", "with", "about", "from", "this", "that", "your", "how"}
+        generic = {"the", "and", "for", "with", "about", "from", "this", "that",
+                   "your", "how", "what", "why", "when", "our", "all", "new"}
         if parts[0].lower() in generic or parts[1].lower() in generic:
+            return ""
+        # Filter out platform names
+        platform_names = {"substack", "medium", "linkedin", "newsletter", "blog", "article"}
+        if any(p.lower() in platform_names for p in parts):
             return ""
 
     return name.strip()
