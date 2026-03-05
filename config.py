@@ -59,8 +59,6 @@ TITLE_KEYWORDS_HEAD = [
     "Leiter Marketing", "Leiter Technik",
 ]
 
-ALL_TITLES = TITLE_KEYWORDS_CLEVEL + TITLE_KEYWORDS_VP + TITLE_KEYWORDS_HEAD
-
 # ============================================================
 # Tier 1 Queries: Engagement keyword + Title
 # These get highest priority in free tier budget

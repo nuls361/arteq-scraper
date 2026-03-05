@@ -1,5 +1,6 @@
 credentials.json
 .env
+.claude/
 venv/
 __pycache__/
 leads_*.csv

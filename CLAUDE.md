@@ -124,7 +124,7 @@ Alle Module nutzen Package-Imports. `PYTHONPATH=.` in Workflows gesetzt.
 ## Häufige Aufgaben
 
 ```bash
-# Role Scraper (ersetzt quick_run.py)
+# Role Scraper
 PYTHONPATH=. python -m scrapers.role_scraper
 
 # Signal Scraper
@@ -143,6 +143,3 @@ PYTHONPATH=. python enrich_single.py --company-id <uuid>
 python candidate_pipeline.py
 ```
 
-## Legacy-Dateien (nach Migration löschbar)
-
-`quick_run.py`, root `signal_scraper.py`, root `sdr_agent.py`, root `ae_agent.py`, `company_discovery.py`, `enrich_contacts.py`, `scorer.py`, `daily_scrape.yml`, `signal_scrape.yml`, `company_discovery.yml`
