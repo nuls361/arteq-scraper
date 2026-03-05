@@ -217,11 +217,27 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
   const [enriching, setEnriching] = useState(false);
   const [companyAgentLogs, setCompanyAgentLogs] = useState([]);
 
+  const loadEntries = useCallback(async () => {
+    if (!company) return;
+    setLoading(true);
+    try {
+      const data = await supaFetch(
+        "company_dossier",
+        `company_id=eq.${company.id}&order=created_at.desc&limit=200`
+      );
+      setEntries(data || []);
+    } catch (e) {
+      console.error("Dossier load error:", e);
+    }
+    setLoading(false);
+  }, [company]);
+
+  useEffect(() => { loadEntries(); }, [loadEntries]);
+
   const handleEnrich = async () => {
     if (enriching || !company) return;
     setEnriching(true);
     try {
-      // Write a temporary dossier entry so Activity tab shows the request immediately
       await supaPost("company_dossier", {
         company_id: company.id,
         entry_type: "agent_action",
@@ -230,7 +246,6 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
         source: "dashboard",
         author: "A-Line Team",
       });
-      // Trigger the edge function
       const res = await fetch(`${SUPABASE_URL}/functions/v1/trigger-enrich`, {
         method: "POST",
         headers: {
@@ -248,26 +263,8 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
     } catch (e) {
       console.error("Enrich error:", e);
     }
-    // Reset after 4 seconds
     setTimeout(() => setEnriching(false), 4000);
   };
-
-  const loadEntries = useCallback(async () => {
-    if (!company) return;
-    setLoading(true);
-    try {
-      const data = await supaFetch(
-        "company_dossier",
-        `company_id=eq.${company.id}&order=created_at.desc&limit=200`
-      );
-      setEntries(data || []);
-    } catch (e) {
-      console.error("Dossier load error:", e);
-    }
-    setLoading(false);
-  }, [company]);
-
-  useEffect(() => { loadEntries(); }, [loadEntries]);
 
   // Load agent logs for this company
   useEffect(() => {
