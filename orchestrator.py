@@ -127,11 +127,34 @@ def clean_json_response(text):
     return text.strip()
 
 
-def claude_request(prompt, max_tokens=1500):
-    """Make a Claude API request."""
+def load_agent_soul():
+    """Load the agent soul file as system prompt."""
+    soul_path = os.path.join(os.path.dirname(__file__), "agent_soul.md")
+    try:
+        with open(soul_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return None
+
+
+AGENT_SOUL = load_agent_soul()
+
+
+def claude_request(prompt, max_tokens=1500, system=None):
+    """Make a Claude API request with optional system prompt (defaults to agent soul)."""
     if not ANTHROPIC_KEY:
         return None
     try:
+        body = {
+            "model": "claude-sonnet-4-5-20250929",
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        # Use provided system prompt, fall back to agent soul
+        sys_prompt = system if system is not None else AGENT_SOUL
+        if sys_prompt:
+            body["system"] = sys_prompt
+
         resp = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -139,11 +162,7 @@ def claude_request(prompt, max_tokens=1500):
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
             },
-            json={
-                "model": "claude-sonnet-4-5-20250929",
-                "max_tokens": max_tokens,
-                "messages": [{"role": "user", "content": prompt}],
-            },
+            json=body,
             timeout=60,
         )
         if resp.status_code != 200:
