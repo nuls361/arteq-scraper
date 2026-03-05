@@ -1290,6 +1290,38 @@ export default function ALineCRM() {
     return av < bv ? (sort.dir==="asc"?-1:1) : av > bv ? (sort.dir==="asc"?1:-1) : 0;
   });
 
+  // People filtering
+  const peopleSourceCounts = {};
+  allPeopleList.forEach(p => { peopleSourceCounts[p.source] = (peopleSourceCounts[p.source]||0)+1; });
+  const peopleRoleTypes = {};
+  allPeopleList.forEach(p => {
+    const rt = p.role_type || (p.is_decision_maker ? "decision_maker" : null);
+    if (rt) peopleRoleTypes[rt] = (peopleRoleTypes[rt]||0)+1;
+  });
+
+  const filteredPeople = allPeopleList.filter(p => {
+    if (peopleSourceFilter !== "all" && p.source !== peopleSourceFilter) return false;
+    if (peopleRoleTypeFilter !== "all") {
+      const rt = p.role_type || (p.is_decision_maker ? "decision_maker" : null);
+      if (rt !== peopleRoleTypeFilter) return false;
+    }
+    if (search) {
+      const co = cMap.current[p.company_id];
+      if (!`${p.name||""} ${p.title||""} ${p.role_at_company||""} ${co?.name||""} ${p.email||""}`.toLowerCase().includes(search.toLowerCase())) return false;
+    }
+    return true;
+  }).sort((a,b) => {
+    let av = a[sort.key], bv = b[sort.key];
+    if (sort.key === "company_name") {
+      av = cMap.current[a.company_id]?.name || "";
+      bv = cMap.current[b.company_id]?.name || "";
+    }
+    if (av==null) av = sort.dir==="desc" ? -Infinity : Infinity;
+    if (bv==null) bv = sort.dir==="desc" ? -Infinity : Infinity;
+    if (typeof av === "string") { av = av.toLowerCase(); bv = (bv||"").toLowerCase(); }
+    return av < bv ? (sort.dir==="asc"?-1:1) : av > bv ? (sort.dir==="asc"?1:-1) : 0;
+  });
+
   const navigateCompany = useCallback((direction) => {
     if (selectedPerson) {
       const newIndex = selectedPersonIndex + direction;
@@ -1334,38 +1366,6 @@ export default function ALineCRM() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [selectedCompany, navigateCompany, closeDetail]);
-
-  // People filtering
-  const peopleSourceCounts = {};
-  allPeopleList.forEach(p => { peopleSourceCounts[p.source] = (peopleSourceCounts[p.source]||0)+1; });
-  const peopleRoleTypes = {};
-  allPeopleList.forEach(p => {
-    const rt = p.role_type || (p.is_decision_maker ? "decision_maker" : null);
-    if (rt) peopleRoleTypes[rt] = (peopleRoleTypes[rt]||0)+1;
-  });
-
-  const filteredPeople = allPeopleList.filter(p => {
-    if (peopleSourceFilter !== "all" && p.source !== peopleSourceFilter) return false;
-    if (peopleRoleTypeFilter !== "all") {
-      const rt = p.role_type || (p.is_decision_maker ? "decision_maker" : null);
-      if (rt !== peopleRoleTypeFilter) return false;
-    }
-    if (search) {
-      const co = cMap.current[p.company_id];
-      if (!`${p.name||""} ${p.title||""} ${p.role_at_company||""} ${co?.name||""} ${p.email||""}`.toLowerCase().includes(search.toLowerCase())) return false;
-    }
-    return true;
-  }).sort((a,b) => {
-    let av = a[sort.key], bv = b[sort.key];
-    if (sort.key === "company_name") {
-      av = cMap.current[a.company_id]?.name || "";
-      bv = cMap.current[b.company_id]?.name || "";
-    }
-    if (av==null) av = sort.dir==="desc" ? -Infinity : Infinity;
-    if (bv==null) bv = sort.dir==="desc" ? -Infinity : Infinity;
-    if (typeof av === "string") { av = av.toLowerCase(); bv = (bv||"").toLowerCase(); }
-    return av < bv ? (sort.dir==="asc"?-1:1) : av > bv ? (sort.dir==="asc"?1:-1) : 0;
-  });
 
   return (
     <div style={{ display:"flex", height:"100vh", fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,sans-serif", background:"#fff", color:"#1A1A1A", fontSize:13 }}>
