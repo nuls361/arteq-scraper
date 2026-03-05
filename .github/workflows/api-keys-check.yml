@@ -1,0 +1,132 @@
+name: API Key Validation
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # Daily at 06:00 UTC
+  workflow_dispatch:       # Manual trigger
+
+jobs:
+  validate-keys:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Validate all API keys
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          APOLLO_API_KEY: ${{ secrets.APOLLO_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          PDL_API_KEY: ${{ secrets.PDL_API_KEY }}
+          JSEARCH_API_KEY: ${{ secrets.JSEARCH_API_KEY }}
+        run: |
+          python -c "
+          import requests, os, sys
+
+          results = {}
+          failed = False
+
+          # --- Supabase ---
+          url = os.getenv('SUPABASE_URL', '')
+          key = os.getenv('SUPABASE_KEY', '')
+          if url and key:
+              try:
+                  r = requests.get(f'{url}/rest/v1/company?select=id&limit=1',
+                      headers={'apikey': key, 'Authorization': f'Bearer {key}'}, timeout=10)
+                  results['Supabase'] = 'ok' if r.status_code == 200 else f'HTTP {r.status_code}'
+              except Exception as e:
+                  results['Supabase'] = f'error: {e}'
+          else:
+              results['Supabase'] = 'MISSING'
+
+          # --- Anthropic ---
+          key = os.getenv('ANTHROPIC_API_KEY', '')
+          if key:
+              try:
+                  r = requests.post('https://api.anthropic.com/v1/messages',
+                      headers={'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
+                      json={'model': 'claude-haiku-4-5-20251001', 'max_tokens': 5, 'messages': [{'role': 'user', 'content': 'ping'}]},
+                      timeout=15)
+                  results['Anthropic'] = 'ok' if r.status_code == 200 else f'HTTP {r.status_code}'
+              except Exception as e:
+                  results['Anthropic'] = f'error: {e}'
+          else:
+              results['Anthropic'] = 'MISSING'
+
+          # --- Apollo ---
+          key = os.getenv('APOLLO_API_KEY', '')
+          if key:
+              try:
+                  r = requests.post('https://api.apollo.io/api/v1/mixed_people/search',
+                      headers={'Content-Type': 'application/json', 'X-Api-Key': key},
+                      json={'q_organization_name': 'test', 'per_page': 1, 'page': 1}, timeout=10)
+                  results['Apollo'] = 'ok' if r.status_code == 200 else f'HTTP {r.status_code}'
+              except Exception as e:
+                  results['Apollo'] = f'error: {e}'
+          else:
+              results['Apollo'] = 'MISSING'
+
+          # --- Resend ---
+          key = os.getenv('RESEND_API_KEY', '')
+          if key:
+              try:
+                  r = requests.get('https://api.resend.com/domains',
+                      headers={'Authorization': f'Bearer {key}'}, timeout=10)
+                  results['Resend'] = 'ok' if r.status_code == 200 else f'HTTP {r.status_code}'
+              except Exception as e:
+                  results['Resend'] = f'error: {e}'
+          else:
+              results['Resend'] = 'MISSING (optional)'
+
+          # --- PDL ---
+          key = os.getenv('PDL_API_KEY', '')
+          if key:
+              try:
+                  r = requests.get('https://api.peopledatalabs.com/v5/person/search',
+                      headers={'X-Api-Key': key, 'Content-Type': 'application/json'},
+                      params={'size': 1, 'dataset': 'all', 'pretty': 'true'},
+                      timeout=10)
+                  results['PDL'] = 'ok' if r.status_code in (200, 400) else f'HTTP {r.status_code}'
+              except Exception as e:
+                  results['PDL'] = f'error: {e}'
+          else:
+              results['PDL'] = 'MISSING'
+
+          # --- JSearch ---
+          key = os.getenv('JSEARCH_API_KEY', '')
+          if key:
+              try:
+                  r = requests.get('https://jsearch.p.rapidapi.com/search',
+                      headers={'X-RapidAPI-Key': key, 'X-RapidAPI-Host': 'jsearch.p.rapidapi.com'},
+                      params={'query': 'test', 'num_pages': '1'}, timeout=10)
+                  results['JSearch'] = 'ok' if r.status_code == 200 else f'HTTP {r.status_code}'
+              except Exception as e:
+                  results['JSearch'] = f'error: {e}'
+          else:
+              results['JSearch'] = 'MISSING'
+
+          # --- Report ---
+          print('\n=== API Key Validation ===')
+          for name, status in results.items():
+              icon = 'pass' if status == 'ok' else ('skip' if 'optional' in status.lower() else 'FAIL')
+              print(f'  [{icon}] {name}: {status}')
+              if icon == 'FAIL':
+                  failed = True
+
+          if failed:
+              print('\nSome API keys are invalid or missing!')
+              sys.exit(1)
+          else:
+              print('\nAll API keys validated successfully.')
+          "
