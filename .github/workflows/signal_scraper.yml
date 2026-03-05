@@ -1,15 +1,15 @@
-name: A-Line Orchestrator
+name: A-Line Signal Scraper
 
 on:
   schedule:
-    # 06:30 UTC = 07:30 CET, after scrapers (06:00 + 06:15 UTC)
-    - cron: '30 6 * * *'
+    # 06:15 UTC = 07:15 CET (after role scraper)
+    - cron: '15 6 * * *'
   workflow_dispatch:
 
 jobs:
-  orchestrate:
+  scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -23,13 +23,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run orchestrator
+      - name: Run signal scraper
         env:
           PYTHONPATH: .
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          APOLLO_API_KEY: ${{ secrets.APOLLO_API_KEY }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
-        run: python orchestrator.py
+        run: python -m scrapers.signal_scraper
