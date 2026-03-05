@@ -2,7 +2,7 @@
 
 ## Was ist das?
 
-Automatisierte B2B-Prospecting-Pipeline für Arteq. Zwei Daten-Streams (Roles + Signals) füttern zwei separate Pipelines (Role Pipeline + Company Pipeline). Claude-basierte Klassifizierung statt Rule-based Scoring. Deep Enrichment via Apollo + Claude.
+Automatisierte B2B-Prospecting-Pipeline für Arteq. Zwei Daten-Streams (Roles + Signals) füttern zwei separate Pipelines (Role Pipeline + Company Pipeline). Claude-basierte Klassifizierung statt Rule-based Scoring. Deep Enrichment via Apollo + Claude. Plus: Supply-Side Candidate Pipeline für Interim/Fractional Executives.
 
 Ziel: Niels bekommt jeden Morgen qualifizierte Leads — vollautomatisch, €0/Monat.
 
@@ -43,6 +43,7 @@ arteq-scraper/
 │   ├── sdr_agent.py             # SDR: Cold outreach, follow-ups, handoff
 │   └── ae_agent.py              # AE: Qualified leads, meetings, proposals
 ├── orchestrator.py              # Simplified orchestrator (calls enrichers + pipelines + agents)
+├── candidate_pipeline.py        # Supply side: Interim/Fractional candidate database (PDL + Marketplaces + Thought Leaders + Apollo)
 ├── config.py                    # Keywords, Scoring-Weights, Settings
 ├── dedup.py                     # Deduplizierung
 ├── healthcheck.py               # System-Health (4x täglich)
@@ -50,7 +51,7 @@ arteq-scraper/
 ├── agent_soul.md                # Core Agent Persona (DE)
 ├── agent_soul_sdr.md            # SDR-Persona
 ├── agent_soul_ae.md             # AE-Persona
-├── migrations/                  # 001-006 SQL migrations
+├── migrations/                  # 001-007 SQL migrations
 └── .github/workflows/           # GitHub Actions
 ```
 
@@ -69,9 +70,10 @@ Opportunity Stages: `new → enriching → ready_for_outreach → sdr_contacted 
 
 **Core:** `company`, `contact`, `role`, `signal`, `company_dossier`, `company_contact`
 **Pipeline:** `opportunity` (pipeline_type: 'role' | 'company'), `meeting_prep`, `proposal_draft`
+**Supply Side:** `candidate` (Interim/Fractional executives, scored 0-100, tiers: available/passive/research)
 **Agentic:** `agent_config`, `agent_log`, `outreach`, `apollo_credit_ledger`
 
-Migrationen in `migrations/001-006*.sql`.
+Migrationen in `migrations/001-007*.sql`.
 
 ## GitHub Actions
 
@@ -82,6 +84,7 @@ Migrationen in `migrations/001-006*.sql`.
 | `orchestrator.yml` | 07:30 CET | `python orchestrator.py` |
 | `healthcheck.yml` | Alle 6h | `python healthcheck.py` |
 | `enrich_company.yml` | On-Demand | `python enrich_single.py --company-id <uuid>` |
+| `candidate_pipeline.yml` | Montag 08:00 CET | `python candidate_pipeline.py` |
 
 Alle Module nutzen Package-Imports. `PYTHONPATH=.` in Workflows gesetzt.
 
@@ -102,6 +105,7 @@ Alle Module nutzen Package-Imports. `PYTHONPATH=.` in Workflows gesetzt.
 - `JSEARCH_API_KEY` — RapidAPI JSearch
 - `ANTHROPIC_API_KEY` — Claude
 - `SUPABASE_URL` + `SUPABASE_KEY` — Datenbank
+- `PDL_API_KEY` — People Data Labs (Candidate Pipeline)
 - `APOLLO_API_KEY` — Decision-Maker-Enrichment
 - `RESEND_API_KEY` — E-Mail-Versand
 - `ALERT_EMAIL` — Monitoring-Alerts (niels@arteq.app)
@@ -134,6 +138,9 @@ python healthcheck.py
 
 # Einzelne Company enrichen
 PYTHONPATH=. python enrich_single.py --company-id <uuid>
+
+# Candidate Pipeline (Supply Side, weekly)
+python candidate_pipeline.py
 ```
 
 ## Legacy-Dateien (nach Migration löschbar)
