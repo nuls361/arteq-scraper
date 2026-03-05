@@ -2,8 +2,8 @@ name: A-Line Signal Scrape
 
 on:
   schedule:
-    # 06:30 UTC = 30min after main scraper
-    - cron: '30 6 * * *'
+    # 06:00 UTC = 07:00 CET
+    - cron: '0 6 * * *'
   workflow_dispatch:
 
 jobs:

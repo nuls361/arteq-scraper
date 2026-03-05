@@ -2,8 +2,8 @@ name: A-Line Company Discovery
 
 on:
   schedule:
-    # 06:45 UTC = after signal scraper (06:30), before Niels checks email
-    - cron: '45 6 * * *'
+    # 06:00 UTC = 07:00 CET
+    - cron: '0 6 * * *'
   workflow_dispatch:
 
 jobs:

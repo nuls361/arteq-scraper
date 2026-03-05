@@ -7,10 +7,11 @@ Runs after scrapers (role_scraper, signal_scraper) and orchestrates:
   2. Company enrichment (pending companies)
   3. Contact enrichment (pending contacts)
   4. Role pipeline (create opportunities from hot roles)
-  5. Company pipeline (create opportunities from hot signals)
-  6. SDR agent (outreach + reply handling)
-  7. AE agent (qualified leads + meetings + proposals)
-  8. Daily brief to Niels
+  5. Research agent (find candidates for hot roles)
+  6. Company pipeline (create opportunities from hot signals)
+  7. SDR agent (outreach + reply handling)
+  8. AE agent (qualified leads + meetings + proposals)
+  9. Daily brief to Niels
 
 Scrapers run as separate GitHub Actions BEFORE orchestrator.
 
@@ -160,6 +161,11 @@ def send_daily_brief(results):
         "stage": "not.in.(closed_won,closed_lost)",
     })
 
+    candidate_matches = supabase_request("GET", "role_candidate_match", params={
+        "select": "id",
+        "status": "eq.proposed",
+    })
+
     role_opps = [o for o in (active_opps or []) if o.get("pipeline_type") == "role"]
     company_opps = [o for o in (active_opps or []) if o.get("pipeline_type") == "company"]
 
@@ -174,6 +180,7 @@ def send_daily_brief(results):
     </tr>
     <tr><td style="padding:8px">Hot Roles (active)</td><td style="text-align:right;padding:8px;font-weight:600">{len(hot_roles or [])}</td></tr>
     <tr><td style="padding:8px">Companies pending enrichment</td><td style="text-align:right;padding:8px;font-weight:600">{len(pending_companies or [])}</td></tr>
+    <tr><td style="padding:8px">Candidate matches (proposed)</td><td style="text-align:right;padding:8px;font-weight:600">{len(candidate_matches or [])}</td></tr>
     <tr><td style="padding:8px">Role Pipeline opportunities</td><td style="text-align:right;padding:8px;font-weight:600">{len(role_opps)}</td></tr>
     <tr><td style="padding:8px">Company Pipeline opportunities</td><td style="text-align:right;padding:8px;font-weight:600">{len(company_opps)}</td></tr>
     </table>
@@ -268,7 +275,16 @@ def main():
         logger.error(f"Role pipeline error: {e}")
         results["Role Pipeline"] = f"Error: {e}"
 
-    # Step 5: Company pipeline
+    # Step 5: Research agent (find candidates for hot roles)
+    try:
+        from pipeline.research_agent import run as run_research
+        research_results = run_research()
+        results["Research Agent"] = f"{research_results.get('roles_researched', 0)} roles, {research_results.get('matches_found', 0)} matches"
+    except Exception as e:
+        logger.error(f"Research agent error: {e}")
+        results["Research Agent"] = f"Error: {e}"
+
+    # Step 6: Company pipeline
     try:
         from pipeline.company_pipeline import create_opportunities as company_create
         company_create()
@@ -277,7 +293,7 @@ def main():
         logger.error(f"Company pipeline error: {e}")
         results["Company Pipeline"] = f"Error: {e}"
 
-    # Step 6: SDR agent
+    # Step 7: SDR agent
     try:
         from pipeline.sdr_agent import run as run_sdr
         sdr_results = run_sdr(config)
@@ -286,7 +302,7 @@ def main():
         logger.error(f"SDR agent error: {e}")
         results["SDR Agent"] = f"Error: {e}"
 
-    # Step 7: AE agent
+    # Step 8: AE agent
     try:
         from pipeline.ae_agent import run as run_ae
         ae_results = run_ae(config)
@@ -295,7 +311,7 @@ def main():
         logger.error(f"AE agent error: {e}")
         results["AE Agent"] = f"Error: {e}"
 
-    # Step 8: Daily brief
+    # Step 9: Daily brief
     try:
         send_daily_brief(results)
     except Exception as e:

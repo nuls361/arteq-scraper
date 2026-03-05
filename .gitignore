@@ -1,6 +1,10 @@
 credentials.json
+.env
 venv/
 __pycache__/
 leads_*.csv
+candidates_*.csv
 *.pyc
 supabase/.temp/
+node_modules/
+dist/

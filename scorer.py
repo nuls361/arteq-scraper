@@ -135,7 +135,7 @@ def calculate_score(job: dict, engagement_type: str, signals: list[str], role_le
         score += SCORING["explicit_fractional_interim_title"]
 
     # +25: Fractional signal in body text
-    if signals and score < 40:  # Only add if not already Hot from title
+    if signals:
         score += SCORING["fractional_signal_body"]
 
     # +15: Recent funding (if we have the data)
@@ -165,10 +165,6 @@ def calculate_score(job: dict, engagement_type: str, signals: list[str], role_le
     # +5: C-Level title (higher value mandate)
     if role_level == "C-Level":
         score += SCORING["clevel_title"]
-
-    # Bonus: Startup/Scale-up company type
-    if job.get("company_type", "").lower() in ["startup", "scale-up"]:
-        score += 5
 
     return min(score, 100)
 
