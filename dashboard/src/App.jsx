@@ -183,7 +183,7 @@ function OutreachThread({ thread, contacts: threadContacts }) {
               )}
               <span style={{ flex:1 }} />
               <span style={{ fontSize:10, color:"#A0A3A9" }}>
-                {date ? date.toLocaleDateString("de-DE", { day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" }) : ""}
+                {date ? date.toLocaleDateString("en-GB", { day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" }) : ""}
               </span>
             </div>
             {msg.subject && i === 0 && (
@@ -317,7 +317,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
       await loadEntries();
     } catch (err) {
       console.error("File upload error:", err);
-      alert("Upload fehlgeschlagen: " + err.message);
+      alert("Upload failed: " + err.message);
     }
     setUploading(false);
     // Reset file input
@@ -347,7 +347,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
       if (onContactsChanged) onContactsChanged();
     } catch (e) {
       console.error("Add contact error:", e);
-      alert("Contact konnte nicht gespeichert werden: " + e.message);
+      alert("Could not save contact: " + e.message);
     }
     setSavingContact(false);
   };
@@ -513,7 +513,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                               )}
                               <span style={{ flex:1 }} />
                               <span style={{ fontSize:10, color:"#A0A3A9", whiteSpace:"nowrap" }}>
-                                {date ? date.toLocaleDateString("de-DE", { day:"numeric", month:"short", year:"numeric" }) : "—"}
+                                {date ? date.toLocaleDateString("en-GB", { day:"numeric", month:"short", year:"numeric" }) : "—"}
                               </span>
                             </div>
 
@@ -584,10 +584,10 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                   <div style={{ background:"#FAFAFA", borderRadius:8, padding:16, marginBottom:16, border:"1px solid #EBEBED" }}>
                     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                       <input value={newContact.name} onChange={e => setNewContact(p => ({...p, name: e.target.value}))} placeholder="Name *" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none", gridColumn: "1 / -1" }} />
-                      <input value={newContact.title} onChange={e => setNewContact(p => ({...p, title: e.target.value}))} placeholder="Titel (z.B. CEO)" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
+                      <input value={newContact.title} onChange={e => setNewContact(p => ({...p, title: e.target.value}))} placeholder="Title (e.g. CEO)" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
                       <input value={newContact.linkedin_url} onChange={e => setNewContact(p => ({...p, linkedin_url: e.target.value}))} placeholder="LinkedIn URL" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
                       <input value={newContact.email} onChange={e => setNewContact(p => ({...p, email: e.target.value}))} placeholder="Email" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
-                      <input value={newContact.phone} onChange={e => setNewContact(p => ({...p, phone: e.target.value}))} placeholder="Telefon" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
+                      <input value={newContact.phone} onChange={e => setNewContact(p => ({...p, phone: e.target.value}))} placeholder="Phone" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
                     </div>
                     <button onClick={handleAddContact} disabled={savingContact || !newContact.name.trim()} style={{
                       marginTop:10, padding:"7px 18px", borderRadius:6, border:"none", fontSize:12, fontWeight:600, cursor: newContact.name.trim() ? "pointer" : "default", fontFamily:"inherit",
@@ -763,7 +763,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                   ["Source", null],
                   ["Seniority", person.seniority || "—"],
                   ["DM", person.is_decision_maker ? "Yes" : "No"],
-                  ["Added", person.created_at ? new Date(person.created_at).toLocaleDateString("de-DE",{day:"numeric",month:"short",year:"numeric"}) : "—"],
+                  ["Added", person.created_at ? new Date(person.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : "—"],
                 ].map(([label, value]) => {
                   let rendered = value || "—";
                   if (label === "Email" && value) rendered = <a href={`mailto:${value}`} style={{ fontSize:12, color:"#5B5FC7", textDecoration:"none" }}>{value}</a>;
@@ -781,7 +781,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
 
               {/* Company section below person */}
               <div style={{ marginTop:28, paddingTop:20, borderTop:"1px solid #EBEBED" }}>
-                <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:12 }}>Company</div>
+                <div onClick={() => onOpenCompany && onOpenCompany(company)} style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:12, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:4 }}>Company <span style={{ fontSize:9, color:"#5B5FC7" }}>↗</span></div>
                 <div style={{ display:"grid", gridTemplateColumns:"100px 1fr", gap:"8px 12px", fontSize:12 }}>
                   {[
                     ["Name", company.name],
@@ -878,7 +878,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
 
               {/* Company section below role */}
               <div style={{ marginTop:28, paddingTop:20, borderTop:"1px solid #EBEBED" }}>
-                <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:12 }}>Company</div>
+                <div onClick={() => onOpenCompany && onOpenCompany(company)} style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:12, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:4 }}>Company <span style={{ fontSize:9, color:"#5B5FC7" }}>↗</span></div>
                 <div style={{ display:"grid", gridTemplateColumns:"100px 1fr", gap:"8px 12px", fontSize:12 }}>
                   {[
                     ["Name", company.name],
@@ -890,7 +890,8 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                     ["HQ", company.hq_city || "—"],
                   ].map(([label, value]) => {
                     let rendered = value || "—";
-                    if (label === "Fit" && value && fitColors[value]) {
+                    if (label === "Name") rendered = <span onClick={() => onOpenCompany && onOpenCompany(company)} style={{ color:"#5B5FC7", cursor:"pointer", fontWeight:600 }}>{value} ↗</span>;
+                    else if (label === "Fit" && value && fitColors[value]) {
                       rendered = <span style={{ padding:"2px 6px", borderRadius:3, fontSize:11, fontWeight:500, background:fitColors[value].bg, color:fitColors[value].color }}>{value}</span>;
                     }
                     return (
@@ -945,7 +946,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                   ["Pipeline", company.pipeline_stage],
                   ["Agent", company.agent_owner || "—"],
                   ["Agency", company.is_agency ? "Yes" : "No"],
-                  ["Added", company.created_at ? new Date(company.created_at).toLocaleDateString("de-DE",{day:"numeric",month:"short",year:"numeric"}) : "—"],
+                  ["Added", company.created_at ? new Date(company.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : "—"],
                 ].map(([label, value]) => {
                   let rendered = value || "—";
                   if (label === "Status" && value) {
@@ -967,6 +968,27 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                   );
                 })}
               </div>
+
+              {/* Roles at this company */}
+              {companyRoles.length > 0 && (
+                <div style={{ marginTop:20, paddingTop:16, borderTop:"1px solid #EBEBED" }}>
+                  <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:10 }}>Roles ({companyRoles.length})</div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                    {companyRoles.map(r => (
+                      <div key={r.id} onClick={() => onOpenRole && onOpenRole(r)} style={{
+                        display:"flex", alignItems:"center", gap:8, padding:"8px 10px",
+                        background:"#F7F7F8", borderRadius:6, cursor:"pointer", fontSize:12,
+                      }}
+                        onMouseEnter={e => e.currentTarget.style.background="#EBEBED"}
+                        onMouseLeave={e => e.currentTarget.style.background="#F7F7F8"}>
+                        <TierPill tier={r.tier} />
+                        <span style={{ fontWeight:600, color:"#1A1A1A", flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.title}</span>
+                        <Score v={r.final_score ?? r.rule_score} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -1552,7 +1574,7 @@ export default function ArteqCRM() {
                   // Group by date
                   const groups = {};
                   agentLogs.forEach(log => {
-                    const d = log.created_at ? new Date(log.created_at).toLocaleDateString("de-DE",{day:"numeric",month:"short",year:"numeric"}) : "Unknown";
+                    const d = log.created_at ? new Date(log.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : "Unknown";
                     if (!groups[d]) groups[d] = [];
                     groups[d].push(log);
                   });
@@ -1569,7 +1591,7 @@ export default function ArteqCRM() {
                                 <span style={{ padding:"2px 6px", borderRadius:3, fontSize:10, fontWeight:600, background:st.bg, color:st.color }}>{st.label}</span>
                                 <span style={{ fontSize:11, color:"#A0A3A9" }}>{log.entity_type}</span>
                                 <span style={{ fontSize:10, color:"#A0A3A9", marginLeft:"auto" }}>
-                                  {log.created_at ? new Date(log.created_at).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"}) : ""}
+                                  {log.created_at ? new Date(log.created_at).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}) : ""}
                                 </span>
                               </div>
                               <div style={{ fontSize:12, color:"#1A1A1A", marginTop:3, lineHeight:1.4 }}>{log.reason || "—"}</div>
