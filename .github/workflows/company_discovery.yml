@@ -1,15 +1,15 @@
-name: Arteq Signal Scrape
+name: Arteq Company Discovery
 
 on:
   schedule:
-    # 06:30 UTC = 30min after main scraper
-    - cron: '30 6 * * *'
+    # 06:45 UTC = after signal scraper (06:30), before Niels checks email
+    - cron: '45 6 * * *'
   workflow_dispatch:
 
 jobs:
-  signals:
+  discover:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -23,9 +23,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run signal scraper
+      - name: Run company discovery
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python signal_scraper.py
+          APOLLO_API_KEY: ${{ secrets.APOLLO_API_KEY }}
+        run: python company_discovery.py

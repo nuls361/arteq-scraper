@@ -22,6 +22,8 @@ API_KEY = os.getenv("JSEARCH_API_KEY", "")
 ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+ALERT_EMAIL = os.getenv("ALERT_EMAIL", "niels@arteq.app")
 
 
 # ── Static blacklists ───────────────────────────────────────
@@ -956,9 +958,9 @@ APOLLO_API_KEY = os.getenv("APOLLO_API_KEY", "")
 
 
 def search_apollo(company_name, titles, company_domain=None):
-    """Search Apollo People API (FREE — no credits consumed) for decision maker."""
+    """Search Apollo People API (FREE — no credits consumed) for decision makers (up to 3)."""
     if not APOLLO_API_KEY or not company_name:
-        return None
+        return []
 
     # Accept string or list
     if isinstance(titles, str):
@@ -971,7 +973,7 @@ def search_apollo(company_name, titles, company_domain=None):
             "person_titles": titles,
             "q_organization_name": company_name,
             "page": 1,
-            "per_page": 3,
+            "per_page": 5,
         }
         # If we have a domain, use it — much more accurate
         if company_domain:
@@ -990,37 +992,41 @@ def search_apollo(company_name, titles, company_domain=None):
 
         if resp.status_code != 200:
             logger.debug(f"  Apollo Search returned {resp.status_code}: {resp.text[:200]}")
-            return None
+            return []
 
         data = resp.json()
         people = data.get("people", [])
 
         if not people:
-            return None
+            return []
 
-        # Take the best match
-        person = people[0]
-        name = person.get("name", "")
-        linkedin = person.get("linkedin_url", "")
-        found_title = person.get("title", titles[0] if titles else "Unknown")
-        apollo_id = person.get("id", "")
+        # Return up to 3 valid persons
+        results = []
+        for person in people[:5]:
+            name = person.get("name", "")
+            if not name or len(name) < 2:
+                continue
+            linkedin = person.get("linkedin_url", "")
+            found_title = person.get("title", titles[0] if titles else "Unknown")
+            apollo_id = person.get("id", "")
 
-        if not name or len(name) < 2:
-            return None
+            logger.info(f"  → Apollo found: {name} ({found_title}) — {linkedin or 'no LinkedIn'}")
 
-        logger.info(f"  → Apollo found: {name} ({found_title}) — {linkedin or 'no LinkedIn'}")
+            results.append({
+                "name": name,
+                "title": found_title,
+                "linkedin_url": linkedin or "",
+                "apollo_id": apollo_id,
+                "source": "apollo_search",
+            })
+            if len(results) >= 3:
+                break
 
-        return {
-            "name": name,
-            "title": found_title,
-            "linkedin_url": linkedin or "",
-            "apollo_id": apollo_id,
-            "source": "apollo_search",
-        }
+        return results
 
     except Exception as e:
         logger.debug(f"  Apollo search error: {e}")
-        return None
+        return []
 
 
 def enrich_apollo(apollo_id=None, name=None, domain=None):
@@ -1200,7 +1206,8 @@ def guess_dm_titles(job):
 
 
 def find_decision_makers(jobs):
-    """Find decision makers: Apollo for Hot (search + enrich), Apollo search for Warm, DDG fallback."""
+    """Find decision makers: Apollo for Hot (search + enrich), Apollo search for Warm, DDG fallback.
+    Stores up to 3 contacts per company. Primary DM (first match) gets enriched for Hot leads."""
     candidates = [
         j for j in jobs
         if not (j.get("ai_analysis") or {}).get("is_agency")
@@ -1236,43 +1243,51 @@ def find_decision_makers(jobs):
 
         logger.info(f"  Searching: {dm_titles} at {job['company']}" + (" [HOT → will enrich]" if is_hot and apollo_on else ""))
 
-        dm = None
+        dm_list = []
 
-        # ── Step 1: Apollo People Search (free) — all titles at once ──
+        # ── Step 1: Apollo People Search (free) — returns up to 3 persons ──
         if apollo_on:
-            dm = search_apollo(job["company"], dm_titles, company_domain)
+            dm_list = search_apollo(job["company"], dm_titles, company_domain)
 
         # ── Step 2: DuckDuckGo fallback — try first two titles ──
-        if not dm:
+        if not dm_list:
             for t in dm_titles[:2]:
                 dm = search_linkedin_ddg(job["company"], t)
                 if dm:
+                    dm_list = [dm]
                     break
 
-        if not dm:
+        if not dm_list:
             time.sleep(1)
             continue
 
-        # ── Step 3: Apollo Enrichment for Hot leads (costs 1 credit) ──
+        # Primary DM = first (best) match
+        primary_dm = dm_list[0]
+
+        # ── Step 3: Apollo Enrichment for Hot leads (costs 1 credit) — primary DM only ──
         if is_hot and apollo_on:
             enrichment = enrich_apollo(
-                apollo_id=dm.get("apollo_id"),
-                name=dm.get("name"),
+                apollo_id=primary_dm.get("apollo_id"),
+                name=primary_dm.get("name"),
                 domain=company_domain,
             )
             if enrichment:
-                dm["email"] = enrichment.get("email")
-                dm["email_status"] = enrichment.get("email_status")
-                dm["phone"] = enrichment.get("phone")
+                primary_dm["email"] = enrichment.get("email")
+                primary_dm["email_status"] = enrichment.get("email_status")
+                primary_dm["phone"] = enrichment.get("phone")
                 credits_used += 1
 
         # ── Apply to all jobs from same company ──
-        job["decision_maker"] = dm
+        # decision_maker = primary DM (backward compat), decision_makers = full list
+        job["decision_maker"] = primary_dm
+        job["decision_makers"] = dm_list
         for j2 in jobs:
             if j2["company"].lower().strip() == job["company"].lower().strip():
-                j2["decision_maker"] = dm
+                j2["decision_maker"] = primary_dm
+                j2["decision_makers"] = dm_list
         found += 1
 
+        logger.info(f"  → {len(dm_list)} contact(s) found for {job['company']}")
         time.sleep(1.5 if apollo_on else 2)
 
     logger.info(f"Decision makers: {found}/{len(search_queue)} found | Apollo credits used: {credits_used}")
@@ -1503,39 +1518,77 @@ def write_to_supabase(jobs):
         if result:
             roles_created += 1
 
-        # ── Step 3: Upsert Decision Maker Contact ──────────────
-        dm = job.get("decision_maker")
-        if dm and company_id:
-            # Check if contact already exists (by linkedin_url)
-            existing_contact = supabase_request("GET", "contact", params={
-                "linkedin_url": f"eq.{dm['linkedin_url']}",
-                "select": "id",
-                "limit": "1",
-            })
+        # ── Step 3: Upsert Decision Maker Contacts (up to 3) ──────────────
+        dm_list = job.get("decision_makers") or []
+        # Backward compat: if only single DM exists
+        if not dm_list and job.get("decision_maker"):
+            dm_list = [job["decision_maker"]]
 
-            if not (existing_contact and len(existing_contact) > 0):
-                contact_data = {
-                    "name": dm["name"],
-                    "title": dm.get("title", ""),
-                    "linkedin_url": dm["linkedin_url"],
-                    "email": dm.get("email"),
-                    "email_status": dm.get("email_status"),
-                    "phone": dm.get("phone"),
-                    "source": dm.get("source", "apollo_search"),
-                }
-                # Remove None values
-                contact_data = {k: v for k, v in contact_data.items() if v is not None}
+        for idx, dm in enumerate(dm_list):
+            if not dm or not company_id:
+                continue
+            is_primary = (idx == 0)
 
+            # Check if contact already exists (by linkedin_url or name+title fallback)
+            existing_contact = None
+            if dm.get("linkedin_url"):
+                existing_contact = supabase_request("GET", "contact", params={
+                    "linkedin_url": f"eq.{dm['linkedin_url']}",
+                    "select": "id",
+                    "limit": "1",
+                })
+
+            if not existing_contact or len(existing_contact) == 0:
+                # Try name match as fallback (same name = likely same person)
+                if dm.get("name"):
+                    existing_contact = supabase_request("GET", "contact", params={
+                        "name": f"eq.{dm['name']}",
+                        "select": "id",
+                        "limit": "1",
+                    })
+
+            contact_data = {
+                "name": dm["name"],
+                "title": dm.get("title", ""),
+                "linkedin_url": dm.get("linkedin_url", ""),
+                "email": dm.get("email"),
+                "email_status": dm.get("email_status"),
+                "phone": dm.get("phone"),
+                "source": dm.get("source", "apollo_search"),
+            }
+            contact_data = {k: v for k, v in contact_data.items() if v is not None}
+
+            if existing_contact and len(existing_contact) > 0:
+                # ── UPDATE existing contact with new data (fill gaps, don't overwrite) ──
+                contact_id = existing_contact[0]["id"]
+                update_data = {}
+                for field in ("email", "email_status", "phone", "linkedin_url", "title"):
+                    if dm.get(field) and dm[field]:
+                        update_data[field] = dm[field]
+                if update_data:
+                    supabase_request("PATCH", f"contact?id=eq.{contact_id}", data=update_data)
+            else:
+                # ── INSERT new contact ──
                 contact_result = supabase_request("POST", "contact", data=contact_data)
                 if contact_result and len(contact_result) > 0:
                     contact_id = contact_result[0]["id"]
-                    # Link contact to company
-                    supabase_request("POST", "company_contact", data={
-                        "company_id": company_id,
-                        "contact_id": contact_id,
-                        "role_at_company": dm.get("title", ""),
-                        "is_decision_maker": True,
-                    })
+                else:
+                    continue
+
+            # ── Link contact to company (if not already linked) ──
+            existing_link = supabase_request("GET", "company_contact", params={
+                "company_id": f"eq.{company_id}",
+                "contact_id": f"eq.{contact_id}",
+                "select": "id",
+                "limit": "1",
+            })
+            if not (existing_link and len(existing_link) > 0):
+                supabase_request("POST", "company_contact", data={
+                    "company_id": company_id,
+                    "contact_id": contact_id,
+                    "role_at_company": dm.get("title", ""),
+                    "is_decision_maker": is_primary,
+                })
 
     logger.info(f"  Supabase: {companies_created} new companies, {companies_updated} updated, {roles_created} roles created, {roles_skipped} roles skipped (dupes)")
     return True
@@ -1555,6 +1608,7 @@ def main():
     print(f"  AI Scoring: {'ON ✓' if use_ai else 'OFF'}")
     print(f"  Supabase: {'ON ✓' if SUPABASE_URL else 'OFF'}")
     print(f"  Apollo: {'ON ✓ (Hot=enrich, Warm=search)' if APOLLO_API_KEY else 'OFF → DDG fallback'}")
+    print(f"  Email: {'ON ✓ → ' + ALERT_EMAIL if RESEND_API_KEY else 'OFF (set RESEND_API_KEY)'}")
     print("=" * 95)
 
     # ── Test Claude ─────────────────────────────────────────
@@ -1898,6 +1952,185 @@ def main():
                 job.get("url", ""), job.get("posted", ""),
             ])
     print(f"  💾 CSV: {filename}\n")
+
+    # ── Daily Email Summary ──────────────────────────────────
+    send_daily_summary(unique)
+
+
+# ═══════════════════════════════════════════════════════════
+# DAILY EMAIL SUMMARY
+# ═══════════════════════════════════════════════════════════
+def build_run_summary_data(jobs):
+    """Build structured summary data from a scraper run for Claude to narrate."""
+    hot = [j for j in jobs if j["tier"] == "HOT" and not (j.get("ai_analysis") or {}).get("is_agency")]
+    warm = [j for j in jobs if j["tier"] == "WARM" and not (j.get("ai_analysis") or {}).get("is_agency")]
+    parked = [j for j in jobs if j["tier"] == "PARKED"]
+    agencies = [j for j in jobs if (j.get("ai_analysis") or {}).get("is_agency")]
+
+    # Unique companies
+    hot_companies = list({j["company"] for j in hot})
+    warm_companies = list({j["company"] for j in warm})
+
+    # Contacts found
+    contacts_found = 0
+    contacts_with_email = 0
+    for j in jobs:
+        dm = j.get("decision_maker")
+        if dm:
+            contacts_found += 1
+            if dm.get("email"):
+                contacts_with_email += 1
+
+    # Top leads detail
+    top_leads = []
+    for j in sorted(hot + warm, key=lambda x: x.get("score", 0), reverse=True)[:8]:
+        ai = j.get("ai_analysis") or {}
+        enr = j.get("enrichment") or {}
+        dm = j.get("decision_maker") or {}
+        top_leads.append({
+            "company": j["company"],
+            "role": j["title"],
+            "tier": j["tier"],
+            "score": j.get("score", 0),
+            "engagement_type": ai.get("engagement_type", ""),
+            "industry": enr.get("industry", ""),
+            "funding": enr.get("funding_stage", ""),
+            "headcount": enr.get("headcount_estimate", ""),
+            "dm_name": dm.get("name", ""),
+            "dm_title": dm.get("title", ""),
+            "dm_email": dm.get("email", ""),
+            "dm_linkedin": dm.get("linkedin_url", ""),
+            "requirements": ai.get("requirements_summary", ""),
+            "url": j.get("url", ""),
+        })
+
+    return {
+        "date": datetime.now().strftime("%d.%m.%Y"),
+        "total_scraped": len(jobs),
+        "hot_count": len(hot),
+        "warm_count": len(warm),
+        "parked_count": len(parked),
+        "agency_count": len(agencies),
+        "hot_companies": hot_companies[:15],
+        "warm_companies": warm_companies[:15],
+        "contacts_found": contacts_found,
+        "contacts_with_email": contacts_with_email,
+        "top_leads": top_leads,
+    }
+
+
+def claude_write_email_summary(summary_data):
+    """Let Claude write a concise, actionable daily summary email in HTML."""
+    if not ANTHROPIC_KEY:
+        return None
+
+    prompt = f"""Du schreibst eine tägliche Zusammenfassungs-Email für Niels von Arteq (Fractional/Interim Executive Vermittlung in DACH).
+
+Die Email soll kurz, professionell und actionable sein. Schreibe auf Deutsch, informeller Ton (du-Form).
+
+Hier sind die Daten vom heutigen Scraper-Run:
+
+Datum: {summary_data['date']}
+Gesamt gescrapte Rollen: {summary_data['total_scraped']}
+Hot Leads: {summary_data['hot_count']}
+Warm Leads: {summary_data['warm_count']}
+Parked: {summary_data['parked_count']}
+Agenturen (rausgefiltert): {summary_data['agency_count']}
+Contacts gefunden: {summary_data['contacts_found']} (davon {summary_data['contacts_with_email']} mit Email)
+
+Hot Companies: {', '.join(summary_data['hot_companies'][:10]) or 'keine'}
+Warm Companies: {', '.join(summary_data['warm_companies'][:10]) or 'keine'}
+
+Top Leads (sortiert nach Score):
+{json.dumps(summary_data['top_leads'], indent=2, ensure_ascii=False)}
+
+Schreibe die Email als HTML. Nutze ein cleanes, modernes Design (inline CSS).
+Die Email soll enthalten:
+1. Ein kurzes Intro (1-2 Sätze, was heute passiert ist)
+2. Key Numbers als kompakte Übersicht
+3. Top Leads als Tabelle (Company, Role, Score, Tier, DM Name/Title, Engagement Type)
+4. Bei jedem Lead wo ein DM mit LinkedIn vorhanden ist: einen klickbaren Link
+5. Ein kurzes Fazit/Empfehlung welche Leads man sich heute zuerst anschauen sollte
+
+Antworte NUR mit dem HTML (kein Markdown, keine Backticks, kein Framing). Starte direkt mit <div>."""
+
+    try:
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-5-20250929",
+                "max_tokens": 2000,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=60,
+        )
+        if resp.status_code != 200:
+            logger.error(f"  Claude Email Summary API {resp.status_code}: {resp.text[:200]}")
+            return None
+
+        data = resp.json()
+        html = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+        return html.strip() if html.strip() else None
+
+    except Exception as e:
+        logger.error(f"  Claude email summary error: {e}")
+        return None
+
+
+def send_daily_summary(jobs):
+    """Generate AI summary and send via Resend."""
+    if not RESEND_API_KEY:
+        logger.info("No RESEND_API_KEY — skipping email summary")
+        return
+
+    if not ANTHROPIC_KEY:
+        logger.info("No ANTHROPIC_API_KEY — cannot generate email summary")
+        return
+
+    try:
+        import resend
+        resend.api_key = RESEND_API_KEY
+    except ImportError:
+        logger.error("resend package not installed — pip install resend")
+        return
+
+    logger.info("\n📧 GENERATING DAILY EMAIL SUMMARY...")
+
+    # Build data
+    summary_data = build_run_summary_data(jobs)
+
+    if summary_data["hot_count"] == 0 and summary_data["warm_count"] == 0:
+        logger.info("  No hot/warm leads today — skipping email")
+        return
+
+    # Let Claude write the email
+    html_body = claude_write_email_summary(summary_data)
+    if not html_body:
+        logger.error("  Failed to generate email summary")
+        return
+
+    # Send via Resend
+    try:
+        date_str = summary_data["date"]
+        hot = summary_data["hot_count"]
+        warm = summary_data["warm_count"]
+
+        email = resend.Emails.send({
+            "from": "Arteq Pipeline <onboarding@resend.dev>",
+            "to": [ALERT_EMAIL],
+            "subject": f"Pipeline Update {date_str} — {hot} Hot, {warm} Warm Leads",
+            "html": html_body,
+        })
+
+        logger.info(f"  ✅ Email sent to {ALERT_EMAIL} (ID: {email.get('id', '?')})")
+
+    except Exception as e:
+        logger.error(f"  Email send error: {e}")
 
 
 if __name__ == "__main__":

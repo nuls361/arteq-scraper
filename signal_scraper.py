@@ -444,8 +444,25 @@ Set skip=true for marketing fluff, product reviews, or non-actionable news."""
 # STEP 7: WRITE TO SUPABASE
 # ═══════════════════════════════════════════════════════════
 
+def write_dossier_entry(company_id, entry_type, title, content, source, source_url=None, signal_id=None):
+    """Write a single entry to the company_dossier table."""
+    record = {
+        "company_id": company_id,
+        "entry_type": entry_type,
+        "title": title[:500] if title else None,
+        "content": (content or "")[:5000],
+        "source": source,
+        "source_url": source_url,
+        "signal_id": signal_id,
+    }
+    result = supabase_request("POST", "company_dossier", data=record)
+    if not result:
+        logger.warning(f"Failed to write dossier entry: {title[:60] if title else '(no title)'}")
+    return result
+
+
 def write_signals(signals):
-    """Write classified signals to Supabase signal table."""
+    """Write classified signals to Supabase signal table + company dossier."""
     if not signals:
         logger.info("No signals to write")
         return 0
@@ -471,6 +488,22 @@ def write_signals(signals):
         result = supabase_request("POST", "signal", data=record)
         if result:
             written += 1
+            # Also write to company dossier for the living intelligence feed
+            signal_id = result[0]["id"] if isinstance(result, list) and result else None
+            signal_type = s.get("signal_type", "other")
+            urgency = s.get("urgency", "medium")
+            score = s.get("relevance_score", 50)
+            dossier_content = s.get("ai_description", s.get("summary", ""))
+            dossier_content += f"\n\n[Signal: {signal_type} | Relevance: {score}/100 | Urgency: {urgency}]"
+            write_dossier_entry(
+                company_id=s["company_id"],
+                entry_type="signal",
+                title=s["title"][:500],
+                content=dossier_content,
+                source=s["source"],
+                source_url=s["source_url"],
+                signal_id=signal_id,
+            )
         else:
             logger.warning(f"Failed to write signal: {s['title'][:60]}")
 

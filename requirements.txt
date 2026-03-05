@@ -4,3 +4,4 @@ gspread>=6.0.0
 google-auth>=2.25.0
 feedparser>=6.0.0
 duckduckgo-search>=7.0.0
+resend>=2.0.0

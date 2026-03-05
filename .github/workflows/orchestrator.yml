@@ -1,15 +1,15 @@
-name: Arteq Signal Scrape
+name: Arteq Orchestrator
 
 on:
   schedule:
-    # 06:30 UTC = 30min after main scraper
-    - cron: '30 6 * * *'
+    # 07:15 UTC = after all scrapers (06:00, 06:30, 06:45)
+    - cron: '15 7 * * *'
   workflow_dispatch:
 
 jobs:
-  signals:
+  orchestrate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -23,9 +23,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run signal scraper
+      - name: Run orchestrator
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python signal_scraper.py
+          APOLLO_API_KEY: ${{ secrets.APOLLO_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+        run: python orchestrator.py
