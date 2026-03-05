@@ -12,6 +12,7 @@ from scrapers.role_scraper import (
     normalize_name,
     detect_role_function,
     dedup_jobs,
+    score_to_tier,
 )
 
 
@@ -262,3 +263,47 @@ def test_dedup_jobs_different_functions_kept(mocker):
     ]
     result = dedup_jobs(jobs)
     assert len(result) == 2
+
+
+# ═══════════════════════════════════════════════════════════
+# score_to_tier
+# ═══════════════════════════════════════════════════════════
+
+@pytest.mark.unit
+def test_score_to_tier_zero():
+    assert score_to_tier(0) == "disqualified"
+
+
+@pytest.mark.unit
+def test_score_to_tier_4():
+    assert score_to_tier(4) == "disqualified"
+
+
+@pytest.mark.unit
+def test_score_to_tier_5():
+    assert score_to_tier(5) == "park"
+
+
+@pytest.mark.unit
+def test_score_to_tier_39():
+    assert score_to_tier(39) == "park"
+
+
+@pytest.mark.unit
+def test_score_to_tier_40():
+    assert score_to_tier(40) == "warm"
+
+
+@pytest.mark.unit
+def test_score_to_tier_69():
+    assert score_to_tier(69) == "warm"
+
+
+@pytest.mark.unit
+def test_score_to_tier_70():
+    assert score_to_tier(70) == "hot"
+
+
+@pytest.mark.unit
+def test_score_to_tier_100():
+    assert score_to_tier(100) == "hot"

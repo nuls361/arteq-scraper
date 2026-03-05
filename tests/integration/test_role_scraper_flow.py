@@ -5,11 +5,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tests.fixtures.roles import HOT_ROLE, WARM_ROLE, SCRAPED_JOBS
+from tests.fixtures.roles import HOT_ROLE, WARM_ROLE, PARK_ROLE, SCRAPED_JOBS
 from tests.fixtures.companies import TAXFIX, PERSONIO
 from tests.fixtures.claude_responses import (
     CLASSIFY_ROLES_HOT_WARM,
-    CLASSIFY_ROLES_ALL_COLD,
+    CLASSIFY_ROLES_ALL_DISQUALIFIED,
+    CLASSIFY_ROLES_PARK,
+    CLASSIFY_ROLES_AGENCY_CAPPED,
 )
 
 import scrapers.role_scraper as role_scraper
@@ -35,7 +37,7 @@ def _make_claude_response(text, status_code=200):
 
 @pytest.mark.integration
 def test_classify_roles_happy_path(mocker, monkeypatch):
-    """Two roles: 1 hot, 1 warm — both pass, cold would be filtered."""
+    """Two roles: 1 hot (score>=70), 1 warm (40-69) — both pass."""
     monkeypatch.setattr(role_scraper, "ANTHROPIC_KEY", "test-key")
 
     mock_post = mocker.patch(
@@ -55,20 +57,23 @@ def test_classify_roles_happy_path(mocker, monkeypatch):
 
     assert len(result) == 2
     assert result[0]["is_hot"] is True
-    assert result[0]["classification"] == "hot"
+    assert result[0]["tier"] == "hot"
+    assert result[0]["qualification_score"] == 82
+    assert "engagement_type_pts" in result[0]["score_breakdown"]
     assert result[1]["is_hot"] is False
-    assert result[1]["classification"] == "warm"
+    assert result[1]["tier"] == "warm"
+    assert result[1]["qualification_score"] == 45
     mock_post.assert_called_once()
 
 
 @pytest.mark.integration
-def test_classify_roles_all_cold_returns_empty(mocker, monkeypatch):
-    """When Claude classifies everything as cold, nothing comes back."""
+def test_classify_roles_all_disqualified_returns_empty(mocker, monkeypatch):
+    """When Claude disqualifies everything (score=0), nothing comes back."""
     monkeypatch.setattr(role_scraper, "ANTHROPIC_KEY", "test-key")
 
     mocker.patch(
         "scrapers.role_scraper.requests.post",
-        return_value=_make_claude_response(CLASSIFY_ROLES_ALL_COLD),
+        return_value=_make_claude_response(CLASSIFY_ROLES_ALL_DISQUALIFIED),
     )
     mocker.patch("time.sleep")
 
@@ -103,14 +108,18 @@ def test_classify_roles_json_parse_error_logs_and_continues(mocker, monkeypatch,
 
 @pytest.mark.integration
 def test_classify_roles_batch_processing(mocker, monkeypatch):
-    """More than 5 jobs should produce multiple Claude API calls (batches of 5)."""
+    """More than 3 jobs should produce multiple Claude API calls (batches of 3)."""
     monkeypatch.setattr(role_scraper, "ANTHROPIC_KEY", "test-key")
 
     batch_response = json.dumps({
         "roles": [
-            {"index": i, "classification": "warm", "reason": "ok",
-             "engagement_type": "Full-time", "role_function": "Finance", "role_level": "Other"}
-            for i in range(1, 6)
+            {"index": i, "score": 50, "is_disqualified": False,
+             "score_breakdown": {"engagement_type_pts": 25, "role_type_pts": 10,
+                                 "structural_pts": 8, "company_stage_pts": 10,
+                                 "deductions_bonuses": -3, "agency_capped": False},
+             "reason": "ok", "engagement_type": "Full-time",
+             "role_function": "Finance", "role_level": "Other"}
+            for i in range(1, 4)
         ]
     })
 
@@ -127,8 +136,8 @@ def test_classify_roles_batch_processing(mocker, monkeypatch):
     ]
 
     role_scraper.classify_roles(jobs)
-    # 7 jobs → ceil(7/5) = 2 batches
-    assert mock_post.call_count == 2
+    # 7 jobs → ceil(7/3) = 3 batches
+    assert mock_post.call_count == 3
 
 
 @pytest.mark.integration
@@ -136,6 +145,52 @@ def test_classify_roles_empty_input(monkeypatch):
     """Empty job list returns empty immediately."""
     monkeypatch.setattr(role_scraper, "ANTHROPIC_KEY", "test-key")
     assert role_scraper.classify_roles([]) == []
+
+
+@pytest.mark.integration
+def test_classify_roles_park_tier(mocker, monkeypatch):
+    """A role scoring 5-39 should get tier='park'."""
+    monkeypatch.setattr(role_scraper, "ANTHROPIC_KEY", "test-key")
+
+    mocker.patch(
+        "scrapers.role_scraper.requests.post",
+        return_value=_make_claude_response(CLASSIFY_ROLES_PARK),
+    )
+    mocker.patch("time.sleep")
+
+    jobs = [
+        {"company": "MidCorp", "title": "VP Finance", "location": "Frankfurt, Germany",
+         "description": "VP Finance role", "source": "arbeitnow", "url": "https://c.com"},
+    ]
+
+    result = role_scraper.classify_roles(jobs)
+    assert len(result) == 1
+    assert result[0]["tier"] == "park"
+    assert result[0]["is_hot"] is False
+    assert result[0]["qualification_score"] == 25
+
+
+@pytest.mark.integration
+def test_classify_roles_agency_capped(mocker, monkeypatch):
+    """Agency-capped role (score=8) should get tier='park'."""
+    monkeypatch.setattr(role_scraper, "ANTHROPIC_KEY", "test-key")
+
+    mocker.patch(
+        "scrapers.role_scraper.requests.post",
+        return_value=_make_claude_response(CLASSIFY_ROLES_AGENCY_CAPPED),
+    )
+    mocker.patch("time.sleep")
+
+    jobs = [
+        {"company": "Hays Recruiting", "title": "Interim CFO", "location": "Berlin",
+         "description": "Agency posting", "source": "jsearch", "url": "https://d.com"},
+    ]
+
+    result = role_scraper.classify_roles(jobs)
+    assert len(result) == 1
+    assert result[0]["tier"] == "park"
+    assert result[0]["qualification_score"] == 8
+    assert result[0]["score_breakdown"]["agency_capped"] is True
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -211,11 +266,15 @@ def test_write_roles_creates_company_and_role(mocker, monkeypatch):
         "posted": "2026-03-01",
         "source": "jsearch",
         "is_hot": True,
-        "classification": "hot",
+        "tier": "hot",
         "classification_reason": "Interim in title",
         "engagement_type": "Interim",
         "role_function": "Finance",
         "role_level": "C-Level",
+        "qualification_score": 82,
+        "score_breakdown": {"engagement_type_pts": 55, "role_type_pts": 20,
+                            "structural_pts": 12, "company_stage_pts": 10,
+                            "deductions_bonuses": -15, "agency_capped": False},
     }
 
     written = role_scraper.write_roles([job])
@@ -251,8 +310,9 @@ def test_write_roles_hot_triggers_enrichment_patch(mocker, monkeypatch):
         "company": "TestCo", "title": "Interim CTO", "description": "",
         "location": "Berlin", "is_remote": False, "url": "https://x.com/1",
         "posted": "2026-03-01", "source": "jsearch", "is_hot": True,
-        "classification_reason": "", "engagement_type": "Interim",
+        "tier": "hot", "classification_reason": "", "engagement_type": "Interim",
         "role_function": "Engineering", "role_level": "C-Level",
+        "qualification_score": 75, "score_breakdown": {},
     }
 
     role_scraper.write_roles([job])
@@ -278,9 +338,10 @@ def test_main_happy_path(mocker, monkeypatch):
     mocker.patch("scrapers.role_scraper.dedup_jobs", return_value=SCRAPED_JOBS[:2])
 
     classified = [
-        {**SCRAPED_JOBS[0], "is_hot": True, "classification": "hot",
+        {**SCRAPED_JOBS[0], "is_hot": True, "tier": "hot",
          "classification_reason": "Interim", "engagement_type": "Interim",
-         "role_function": "Finance", "role_level": "C-Level"},
+         "role_function": "Finance", "role_level": "C-Level",
+         "qualification_score": 82, "score_breakdown": {}},
     ]
     mocker.patch("scrapers.role_scraper.classify_roles", return_value=classified)
     mocker.patch("scrapers.role_scraper.write_roles", return_value=1)

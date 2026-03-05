@@ -12,7 +12,7 @@ import pytest
 import responses
 from responses import matchers
 
-from tests.fixtures.claude_responses import CLASSIFY_ROLES_HOT_WARM, CLASSIFY_ROLES_ALL_COLD
+from tests.fixtures.claude_responses import CLASSIFY_ROLES_HOT_WARM, CLASSIFY_ROLES_ALL_DISQUALIFIED
 from tests.fixtures.companies import TAXFIX
 
 

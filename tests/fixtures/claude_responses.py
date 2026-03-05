@@ -4,7 +4,16 @@ CLASSIFY_ROLES_HOT_WARM = """{
   "roles": [
     {
       "index": 1,
-      "classification": "hot",
+      "score": 82,
+      "is_disqualified": false,
+      "score_breakdown": {
+        "engagement_type_pts": 55,
+        "role_type_pts": 20,
+        "structural_pts": 12,
+        "company_stage_pts": 10,
+        "deductions_bonuses": -15,
+        "agency_capped": false
+      },
       "reason": "Explicit Interim CFO title at funded startup",
       "engagement_type": "Interim",
       "role_function": "Finance",
@@ -12,7 +21,16 @@ CLASSIFY_ROLES_HOT_WARM = """{
     },
     {
       "index": 2,
-      "classification": "warm",
+      "score": 45,
+      "is_disqualified": false,
+      "score_breakdown": {
+        "engagement_type_pts": 25,
+        "role_type_pts": 8,
+        "structural_pts": 8,
+        "company_stage_pts": 10,
+        "deductions_bonuses": -6,
+        "agency_capped": false
+      },
       "reason": "Head-level finance role at scale-up, no interim signal",
       "engagement_type": "Full-time",
       "role_function": "Finance",
@@ -23,8 +41,58 @@ CLASSIFY_ROLES_HOT_WARM = """{
 
 CLASSIFY_ROLES_ALL_COLD = """{
   "roles": [
-    {"index": 1, "classification": "cold", "reason": "Junior role"},
-    {"index": 2, "classification": "cold", "reason": "Non-DACH"}
+    {"index": 1, "classification": "cold", "reason": "Junior role"}
+  ]
+}"""
+
+CLASSIFY_ROLES_ALL_DISQUALIFIED = """{
+  "roles": [
+    {"index": 1, "score": 0, "is_disqualified": true, "score_breakdown": {"engagement_type_pts": 0, "role_type_pts": 0, "structural_pts": 0, "company_stage_pts": 0, "deductions_bonuses": 0, "agency_capped": false}, "reason": "Junior intern role", "engagement_type": "Full-time", "role_function": "Other", "role_level": "Other"},
+    {"index": 2, "score": 0, "is_disqualified": true, "score_breakdown": {"engagement_type_pts": 0, "role_type_pts": 0, "structural_pts": 0, "company_stage_pts": 0, "deductions_bonuses": 0, "agency_capped": false}, "reason": "Non-DACH role", "engagement_type": "Full-time", "role_function": "Other", "role_level": "Other"}
+  ]
+}"""
+
+CLASSIFY_ROLES_PARK = """{
+  "roles": [
+    {
+      "index": 1,
+      "score": 25,
+      "is_disqualified": false,
+      "score_breakdown": {
+        "engagement_type_pts": 8,
+        "role_type_pts": 5,
+        "structural_pts": 8,
+        "company_stage_pts": 6,
+        "deductions_bonuses": -2,
+        "agency_capped": false
+      },
+      "reason": "VP-level role at established company, low interim fit",
+      "engagement_type": "Full-time",
+      "role_function": "Finance",
+      "role_level": "VP"
+    }
+  ]
+}"""
+
+CLASSIFY_ROLES_AGENCY_CAPPED = """{
+  "roles": [
+    {
+      "index": 1,
+      "score": 8,
+      "is_disqualified": false,
+      "score_breakdown": {
+        "engagement_type_pts": 55,
+        "role_type_pts": 20,
+        "structural_pts": 8,
+        "company_stage_pts": 10,
+        "deductions_bonuses": 0,
+        "agency_capped": true
+      },
+      "reason": "Agency posting for Interim CFO, capped at 8",
+      "engagement_type": "Interim",
+      "role_function": "Finance",
+      "role_level": "C-Level"
+    }
   ]
 }"""
 
@@ -33,7 +101,16 @@ CLASSIFY_ROLES_MARKDOWN_FENCED = """```json
   "roles": [
     {
       "index": 1,
-      "classification": "hot",
+      "score": 82,
+      "is_disqualified": false,
+      "score_breakdown": {
+        "engagement_type_pts": 55,
+        "role_type_pts": 20,
+        "structural_pts": 12,
+        "company_stage_pts": 10,
+        "deductions_bonuses": -15,
+        "agency_capped": false
+      },
       "reason": "Interim in title",
       "engagement_type": "Interim",
       "role_function": "Finance",

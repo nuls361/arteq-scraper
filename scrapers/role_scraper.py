@@ -3,7 +3,7 @@
 A-Line Role Scraper — Consolidated multi-source pipeline.
 
 Sources: JSearch (Google for Jobs), Arbeitnow
-Flow: Scrape → Dedup → Claude Classification (Hot/Warm/Cold) → Write to DB → Trigger enrichment
+Flow: Scrape → Dedup → Claude Qualification Scoring (0-100) → Tier Mapping → Write to DB → Trigger enrichment
 
 Usage: python -m scrapers.role_scraper
 Schedule: 06:00 UTC (07:00 CET)
@@ -445,24 +445,35 @@ def dedup_jobs(jobs):
 
 
 # ═══════════════════════════════════════════════════════════
-# CLAUDE CLASSIFICATION (replaces rule-based scoring)
+# QUALIFICATION SCORING
 # ═══════════════════════════════════════════════════════════
+
+def score_to_tier(score):
+    """Map a 0-100 qualification score to a tier label."""
+    if score >= 70:
+        return "hot"
+    if score >= 40:
+        return "warm"
+    if score >= 5:
+        return "park"
+    return "disqualified"
+
 
 def classify_roles(jobs):
     """
-    Use Claude to classify roles as Hot, Warm, or Cold.
-    Hot = Explicit Interim/Fractional in title OR C-Level vacancy at Startup/Scale-up
-    Warm = VP/Head-Level, matching profile, no explicit interim signal
-    Cold = discard
+    Use Claude to score roles on a 0-100 qualification rubric.
+    Scores are mapped to tiers via score_to_tier():
+      hot (>=70), warm (40-69), park (5-39), disqualified (<5).
+    Disqualified roles are discarded.
     """
     if not ANTHROPIC_KEY or not jobs:
         return []
 
     classified = []
 
-    # Process in batches of 5
-    for i in range(0, len(jobs), 5):
-        batch = jobs[i:i + 5]
+    # Process in batches of 3 (longer prompt needs more room)
+    for i in range(0, len(jobs), 3):
+        batch = jobs[i:i + 3]
 
         roles_text = ""
         for idx, j in enumerate(batch):
@@ -471,35 +482,85 @@ def classify_roles(jobs):
 Company: {j['company']}
 Title: {j['title']}
 Location: {j['location']}
-Description: {(j.get('description') or '')[:600]}
+Description: {(j.get('description') or '')[:1200]}
 Source: {j['source']}
 """
 
-        prompt = f"""You are a role classifier for A-Line, a DACH fractional/interim executive placement firm.
+        prompt = f"""You are a role qualification scorer for A-Line, a DACH fractional/interim executive placement firm.
 
-Classify each role posting for its relevance to A-Line's business: placing Interim and Fractional C-Level executives (CFO, COO, CTO, CHRO, CPO, Geschäftsführer) at startups and scale-ups in Germany, Austria, and Switzerland.
+Score each role posting on a 0-100 scale using this rubric:
 
-{roles_text}
+## Block 1 — Engagement Type (0-55 pts)
+- "Interim" or "Übergangs-" explicit in title: 55
+- "Fractional" or "Part-time Executive" explicit in title: 50
+- Contract/Freelance C-Level (no interim/fractional keyword, but contract language): 35
+- Full-time C-Level at startup/scale-up (likely interim need): 25
+- Full-time C-Level at established company: 10
+- Full-time VP/Head-level at startup/scale-up: 8
+- Full-time VP/Head-level at established company: 3
+- Non-executive role: 0
 
-For EACH role, classify as:
-- **hot**: Explicit "Interim" or "Fractional" in title, OR C-Level vacancy at Startup/Scale-up that likely needs interim coverage
-- **warm**: VP/Head-level role matching A-Line's profile, no explicit interim signal but plausible fit
-- **cold**: Not relevant — junior role despite title, large enterprise/agency, wrong geography, or non-executive role
+## Block 2 — Role Type (0-20 pts)
+- CFO / Finance Director / Geschäftsführer (Finance): 20
+- COO / Operations Director: 18
+- CTO / Engineering Director: 15
+- CHRO / CPO / People Director: 12
+- VP Finance / VP Operations: 10
+- Head of Finance / Head of Operations: 8
+- Other Head/Director-level: 5
+- Non-leadership role: 0
+
+## Block 3 — Structural Fit (0-15 pts)
+- DACH-based (Germany, Austria, Switzerland): 8
+- Remote-OK with DACH connection: 5
+- Company language is German: 4
+- Role mentions startup/scale-up/growth context: 3
+
+## Block 4 — Company Stage (0-12 pts)
+- Early-stage startup (<50 employees, pre-Series B): 12
+- Scale-up (50-500 employees, Series B+): 10
+- Mid-market (500-2000 employees): 6
+- Enterprise (2000+ employees): 2
+
+## Deductions & Bonuses
+- Agency/staffing company posting (not the actual employer): -100 (disqualify)
+- Role is clearly a permanent back-fill with no interim angle: -10
+- Urgency signals ("sofort", "immediately", "ASAP"): +5
+- Explicit mention of A-Line's core functions (restructuring, M&A, IPO prep, carve-out): +5
+
+## Agency Cap
+If the posting company is a recruitment/staffing agency (not the actual employer), cap total score at 8.
+
+## Disqualification (score = 0, is_disqualified = true)
+- Intern/Junior/Working Student/Trainee role
+- Big 4 / MBB consulting firm posting
+- Role is outside DACH with no DACH connection
 
 Also detect:
 - engagement_type: "Interim", "Fractional", or "Full-time"
 - role_function: Finance, Engineering, People, Operations, Sales, Marketing, Product, General Management, or Other
 - role_level: C-Level, VP, Head/Director, or Other
 
-Respond in JSON:
+{roles_text}
+
+Respond ONLY in JSON:
 {{"roles": [
   {{
     "index": 1,
-    "classification": "hot|warm|cold",
-    "reason": "1 sentence explaining why",
-    "engagement_type": "Interim|Fractional|Full-time",
-    "role_function": "Finance|Engineering|People|...",
-    "role_level": "C-Level|VP|Head/Director|Other"
+    "score": 72,
+    "is_disqualified": false,
+    "score_breakdown": {{
+      "engagement_type_pts": 55,
+      "role_type_pts": 20,
+      "structural_pts": 7,
+      "company_stage_pts": 10,
+      "deductions_bonuses": -20,
+      "agency_capped": false
+    }},
+    "reason": "1 sentence explaining the score",
+    "engagement_type": "Interim",
+    "role_function": "Finance",
+    "role_level": "C-Level"
   }}
 ]}}"""
 
@@ -513,7 +574,7 @@ Respond in JSON:
                 },
                 json={
                     "model": "claude-haiku-4-5-20251001",
-                    "max_tokens": 1000,
+                    "max_tokens": 1500,
                     "messages": [{"role": "user", "content": prompt}],
                 },
                 timeout=30,
@@ -534,12 +595,17 @@ Respond in JSON:
                 idx = cls.get("index", 0) - 1
                 if 0 <= idx < len(batch):
                     job = batch[idx]
-                    classification = cls.get("classification", "cold")
-                    if classification == "cold":
-                        continue  # Discard cold roles
+                    score = cls.get("score", 0)
+                    is_disqualified = cls.get("is_disqualified", False)
 
-                    job["is_hot"] = classification == "hot"
-                    job["classification"] = classification
+                    if is_disqualified or score < 5:
+                        continue  # Discard disqualified roles
+
+                    tier = score_to_tier(score)
+                    job["qualification_score"] = score
+                    job["score_breakdown"] = cls.get("score_breakdown", {})
+                    job["tier"] = tier
+                    job["is_hot"] = tier == "hot"
                     job["classification_reason"] = cls.get("reason", "")
                     job["engagement_type"] = cls.get("engagement_type", "Full-time")
                     job["role_function"] = cls.get("role_function", "Other")
@@ -553,9 +619,11 @@ Respond in JSON:
         except Exception as e:
             logger.error(f"Claude error: {type(e).__name__}: {e}")
 
-    hot_count = sum(1 for j in classified if j.get("is_hot"))
-    warm_count = len(classified) - hot_count
-    logger.info(f"Claude classified: {hot_count} hot, {warm_count} warm, {len(jobs) - len(classified)} cold (discarded)")
+    hot_count = sum(1 for j in classified if j.get("tier") == "hot")
+    warm_count = sum(1 for j in classified if j.get("tier") == "warm")
+    park_count = sum(1 for j in classified if j.get("tier") == "park")
+    discard_count = len(jobs) - len(classified)
+    logger.info(f"Qualified: {hot_count} hot, {warm_count} warm, {park_count} park, {discard_count} discarded")
     return classified
 
 
@@ -601,8 +669,8 @@ def write_roles(jobs):
         if not company_id:
             continue
 
-        # Determine tier from classification
-        tier = "hot" if j.get("is_hot") else "warm"
+        tier = j.get("tier", "warm")
+        score = j.get("qualification_score", 0)
 
         record = {
             "company_id": company_id,
@@ -619,6 +687,9 @@ def write_roles(jobs):
             "engagement_type": j.get("engagement_type", "Full-time"),
             "role_function": j.get("role_function", "Other"),
             "role_level": j.get("role_level", "Other"),
+            "qualification_score": score,
+            "score_breakdown": json.dumps(j.get("score_breakdown", {})),
+            "final_score": score,
             "status": "active",
             "first_seen_at": now,
         }
@@ -682,8 +753,9 @@ def main():
     written = write_roles(classified)
 
     # Summary
-    hot_count = sum(1 for j in classified if j.get("is_hot"))
-    warm_count = len(classified) - hot_count
+    hot_count = sum(1 for j in classified if j.get("tier") == "hot")
+    warm_count = sum(1 for j in classified if j.get("tier") == "warm")
+    park_count = sum(1 for j in classified if j.get("tier") == "park")
 
     logger.info("=" * 60)
     logger.info("ROLE SCRAPER SUMMARY")
@@ -692,6 +764,7 @@ def main():
     logger.info(f"  After dedup:       {len(new_jobs)}")
     logger.info(f"  Hot roles:         {hot_count}")
     logger.info(f"  Warm roles:        {warm_count}")
+    logger.info(f"  Park roles:        {park_count}")
     logger.info(f"  Written to DB:     {written}")
     logger.info("=" * 60)
 
