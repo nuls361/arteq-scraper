@@ -297,14 +297,20 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
     if (!company) return;
     setLoading(true);
     try {
-      // When viewing a role, fetch role-specific dossier entries
-      // When viewing a hiring manager person, also fetch their role's dossier entries
       const roleId = role?.id || (person?._isHiringManager && person?._roleId);
-      const params = roleId
-        ? `role_id=eq.${roleId}&order=created_at.desc&limit=200`
-        : `company_id=eq.${company.id}&order=created_at.desc&limit=200`;
-      const data = await supaFetch("company_dossier", params);
-      setEntries(data || []);
+      if (roleId) {
+        // Fetch both role-specific AND company-level dossier entries
+        const [roleData, companyData] = await Promise.all([
+          supaFetch("company_dossier", `role_id=eq.${roleId}&order=created_at.desc&limit=200`),
+          supaFetch("company_dossier", `company_id=eq.${company.id}&role_id=is.null&order=created_at.desc&limit=200`),
+        ]);
+        const merged = [...(roleData || []), ...(companyData || [])];
+        merged.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        setEntries(merged);
+      } else {
+        const data = await supaFetch("company_dossier", `company_id=eq.${company.id}&order=created_at.desc&limit=200`);
+        setEntries(data || []);
+      }
     } catch (e) {
       console.error("Dossier load error:", e);
     }
