@@ -1417,11 +1417,11 @@ export default function ALineCRM() {
   }, [selectedCompany, navigateCompany, closeDetail]);
 
   return (
-    <div style={{ display:"flex", height:"100vh", fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,sans-serif", background:"#fff", color:"#1A1A1A", fontSize:13 }}>
+    <div style={{ display:"flex", height:"100vh", overflow:"hidden", fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,sans-serif", background:"#fff", color:"#1A1A1A", fontSize:13 }}>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
       {/* ── Sidebar ── */}
-      <div style={{ width:210, borderRight:"1px solid #EBEBED", padding:"16px 10px", display:"flex", flexDirection:"column", background:"#FAFAFA", flexShrink:0 }}>
+      <div style={{ width:210, borderRight:"1px solid #EBEBED", padding:"16px 10px", display:"flex", flexDirection:"column", background:"#FAFAFA", flexShrink:0, overflow:"hidden" }}>
         <div style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 10px", marginBottom:28 }}>
           <div style={{ width:24, height:24, borderRadius:6, background:"#1A1A1A", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:800, fontSize:12 }}>A</div>
           <span style={{ fontWeight:700, fontSize:15, letterSpacing:-0.5 }}>A-Line</span>
