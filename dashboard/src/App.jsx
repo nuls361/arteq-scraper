@@ -2286,11 +2286,14 @@ export default function ALineCRM() {
                         <td style={{ padding:"9px 14px" }}>
                           {(() => {
                             const dm = contacts[r.company_id];
-                            if (!dm) return <span style={{ color:"#A0A3A9", fontSize:12 }}>—</span>;
+                            const name = dm?.name || r.hiring_manager_name;
+                            if (!name) return <span style={{ color:"#A0A3A9", fontSize:12 }}>—</span>;
+                            const title = dm?.title || r.hiring_manager_title;
+                            const url = dm?.linkedin_url || r.hiring_manager_linkedin;
                             return (
                               <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
-                                <a href={dm.linkedin_url} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{ fontSize:12, fontWeight:600, color:"#1A1A1A", textDecoration:"none" }}>{dm.name}</a>
-                                <span style={{ fontSize:10, color:"#A0A3A9" }}>{dm.title}</span>
+                                {url ? <a href={url} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{ fontSize:12, fontWeight:600, color:"#1A1A1A", textDecoration:"none" }}>{name}</a> : <span style={{ fontSize:12, fontWeight:600, color:"#1A1A1A" }}>{name}</span>}
+                                {title && <span style={{ fontSize:10, color:"#A0A3A9" }}>{title}</span>}
                               </div>
                             );
                           })()}
