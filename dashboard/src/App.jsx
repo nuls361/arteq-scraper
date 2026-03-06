@@ -298,8 +298,10 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
     setLoading(true);
     try {
       // When viewing a role, fetch role-specific dossier entries
-      const params = role
-        ? `role_id=eq.${role.id}&order=created_at.desc&limit=200`
+      // When viewing a hiring manager person, also fetch their role's dossier entries
+      const roleId = role?.id || (person?._isHiringManager && person?._roleId);
+      const params = roleId
+        ? `role_id=eq.${roleId}&order=created_at.desc&limit=200`
         : `company_id=eq.${company.id}&order=created_at.desc&limit=200`;
       const data = await supaFetch("company_dossier", params);
       setEntries(data || []);
@@ -307,7 +309,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
       console.error("Dossier load error:", e);
     }
     setLoading(false);
-  }, [company, role]);
+  }, [company, role, person]);
 
   useEffect(() => { loadEntries(); }, [loadEntries]);
 
