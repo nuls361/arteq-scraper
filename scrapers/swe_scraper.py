@@ -382,6 +382,8 @@ def scrape_arbeitnow():
     except Exception:
         pass
 
+    consecutive_429s = 0
+
     while page <= max_pages:
         try:
             url = f"https://www.arbeitnow.com/api/job-board-api?page={page}"
@@ -394,7 +396,17 @@ def scrape_arbeitnow():
                 if resp.status_code == 403:
                     logger.error("Arbeitnow blocked (Cloudflare?) — skipping")
                     break
+            if resp.status_code == 429:
+                consecutive_429s += 1
+                if consecutive_429s >= 3:
+                    logger.warning("Arbeitnow: 3 consecutive 429s — stopping")
+                    break
+                wait = 10 * (2 ** (consecutive_429s - 1))
+                logger.warning(f"Arbeitnow 429 on page {page} — backing off {wait}s (retry {consecutive_429s}/3)")
+                time.sleep(wait)
+                continue  # retry same page
             resp.raise_for_status()
+            consecutive_429s = 0
             data = resp.json()
 
             listings = data.get("data", [])
@@ -463,7 +475,7 @@ def scrape_arbeitnow():
             if not data.get("links", {}).get("next"):
                 break
             page += 1
-            time.sleep(0.5)
+            time.sleep(2.5)
 
         except Exception as e:
             logger.error(f"Arbeitnow error page {page}: {e}")
