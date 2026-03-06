@@ -45,6 +45,8 @@ def supabase_request(method, table, data=None, params=None):
             resp = requests.post(url, headers=headers, json=data, timeout=15)
         elif method == "PATCH":
             resp = requests.patch(url, headers=headers, json=data, params=params, timeout=15)
+        elif method == "DELETE":
+            resp = requests.delete(url, headers=headers, params=params, timeout=15)
         else:
             return None
         if resp.status_code in (200, 201, 204):
@@ -154,9 +156,85 @@ def enrich_company(company_id):
     intel = gather_company_intel(company_id)
     logger.info(f"Intel: {len(intel['roles'])} roles, {len(intel['signals'])} signals, {len(intel['contacts'])} contacts")
 
-    # Build evaluation prompt
-    batch_text = f"--- Company: {co['name']} (ID: {co['id']}) ---\n"
-    batch_text += f"Status: {co.get('status', 'unknown')} | Industry: {co.get('industry', '?')} | Funding: {co.get('funding_stage', '?')} | Headcount: {co.get('headcount', '?')} | Signal Density: {co.get('signal_density', 0)} | Current Fit: {co.get('arteq_fit', '?')}\n"
+    company_name = co["name"]
+    domain = (co.get("domain") or "").replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0] or None
+
+    # ── Step 1: Claude Company Research ──
+    logger.info("Step 1: Claude company research...")
+    research_prompt = f"""You are a company research agent. Given a company name, search the web and return structured data for the following fields. Use sources like Crunchbase, PitchBook, LinkedIn, Tracxn, ZoomInfo, and the company's own website.
+
+Company: {company_name}
+
+Return ONLY a JSON object with these exact fields:
+
+{{
+  "domain": "primary website domain (e.g. buchhaltungsbutler.de)",
+  "industry": "industry or sector (e.g. Financial Software / SaaS)",
+  "hq": "full HQ address or city + country",
+  "founded": "founding year (integer)",
+  "headcount": "employee count or range (e.g. '11-50' or 23)",
+  "description": "2-3 sentence business description: what they do, for whom, key differentiator",
+  "funding_stage": "last known funding stage (e.g. Seed, Series A, Acquired, Bootstrapped)",
+  "funding_total": "total funding raised in USD (null if unknown)",
+  "investors": ["list", "of", "known", "investors"],
+  "revenue": "annual revenue if known (null if unknown)",
+  "acquisition": {{
+    "acquired": false,
+    "acquirer": null,
+    "date": null
+  }},
+  "founders": ["Founder Name 1", "Founder Name 2"],
+  "status": "active | acquired | defunct"
+}}
+
+Rules:
+- If a field is unknown, use null — never guess or hallucinate.
+- For headcount, prefer the most recent data point and note the source year if uncertain.
+- Return only valid JSON, no explanation, no markdown."""
+
+    research_data = {}
+    research_text = claude_request(research_prompt, max_tokens=1000, system="You are a company research agent. Return only valid JSON.")
+    if research_text:
+        try:
+            research_data = json.loads(clean_json_response(research_text))
+            logger.info(f"  Research: domain={research_data.get('domain')}, industry={research_data.get('industry')}, headcount={research_data.get('headcount')}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Research JSON parse error: {e}")
+
+    # Map research fields to company update
+    update_data = {
+        "last_orchestrator_eval": datetime.now(timezone.utc).isoformat(),
+    }
+    if research_data.get("domain"):
+        update_data["domain"] = research_data["domain"]
+        domain = research_data["domain"]
+    if research_data.get("industry"):
+        update_data["industry"] = research_data["industry"]
+    if research_data.get("hq"):
+        update_data["hq_city"] = research_data["hq"]
+    if research_data.get("founded"):
+        update_data["founded_year"] = research_data["founded"]
+    if research_data.get("headcount"):
+        update_data["headcount"] = str(research_data["headcount"])
+    if research_data.get("description"):
+        update_data["description"] = research_data["description"]
+    if research_data.get("funding_stage"):
+        update_data["funding_stage"] = research_data["funding_stage"]
+    if research_data.get("funding_total"):
+        update_data["funding_amount"] = f"${research_data['funding_total']:,.0f}" if isinstance(research_data["funding_total"], (int, float)) else str(research_data["funding_total"])
+    if research_data.get("investors"):
+        update_data["investors"] = ", ".join(research_data["investors"]) if isinstance(research_data["investors"], list) else str(research_data["investors"])
+    if research_data.get("revenue"):
+        update_data["revenue"] = str(research_data["revenue"])
+    if research_data.get("founders"):
+        update_data["founders"] = ", ".join(research_data["founders"]) if isinstance(research_data["founders"], list) else str(research_data["founders"])
+
+    # ── Step 2: Claude Assessment + Dossier ──
+    logger.info("Step 2: Claude assessment...")
+    batch_text = f"--- Company: {company_name} (ID: {co['id']}) ---\n"
+    batch_text += f"Domain: {domain or '?'} | Industry: {update_data.get('industry', co.get('industry', '?'))} | Funding: {update_data.get('funding_stage', co.get('funding_stage', '?'))} | Headcount: {update_data.get('headcount', co.get('headcount', '?'))}\n"
+    if research_data.get("description"):
+        batch_text += f"Description: {research_data['description']}\n"
 
     if intel["roles"]:
         batch_text += f"Roles ({len(intel['roles'])}): " + ", ".join(
@@ -173,35 +251,40 @@ def enrich_company(company_id):
             f"{c['contact']['name']} ({c['contact'].get('title', '?')}) {'mail' if c['contact'].get('email') else ''}" for c in intel["contacts"][:3]
         ) + "\n"
 
-    prompt = f"""Du bist der AI-Agent für A-Line, eine DACH-Fractional/Interim-Executive-Vermittlung.
+    prompt = f"""You are the AI agent for A-Line, a DACH-focused Fractional/Interim Executive placement firm.
 
-Bewerte diese Company ganzheitlich:
-1. composite_score (0-100): Wie vielversprechend ist diese Company als Kunde?
+Assess this company holistically:
+1. composite_score (0-100): How promising is this company as a client?
 2. recommended_status: lead | prospect | active
-3. outreach_priority: 1 (höchste) bis 10 (niedrigste)
-4. reasoning: 2-3 Sätze mit detaillierter Begründung
+3. outreach_priority: 1 (highest) to 10 (lowest)
+4. dossier_html: Rich HTML dossier with company overview, role analysis, why A-Line fits, and next steps
 
-Kriterien:
-- Hat die Company aktive HOT/WARM Roles für Fractional/Interim Positionen? → starkes Signal
-- Funding-Runde + Wachstum → brauchen wahrscheinlich bald Leadership
-- Leadership Changes → offene Position = Chance
-- Haben wir einen DM mit Email? → outreach-ready
-- Agentur = DISQUALIFIZIERT (score 0)
+Criteria:
+- Active HOT/WARM Roles for Fractional/Interim positions → strong signal
+- Funding round + growth → likely need leadership soon
+- Leadership changes → open position = opportunity
+- Decision maker with email available → outreach-ready
+- Agency/consultancy → DISQUALIFIED (score 0)
 
 {batch_text}
 
-Antworte NUR in validem JSON:
-{{"company_id": "...", "composite_score": 82, "recommended_status": "active", "outreach_priority": 1, "reasoning": "..."}}"""
+Respond ONLY in valid JSON:
+{{"composite_score": 82, "recommended_status": "active", "outreach_priority": 1, "arteq_fit": "high|medium|low", "reasoning": "2-3 sentences", "dossier_html": "<h3>Company Dossier: [Name]</h3><p>...</p><h4>Why A-Line?</h4><ul><li>...</li></ul><h4>Next Steps</h4><ul><li>...</li></ul>"}}
 
-    text = claude_request(prompt, max_tokens=800)
+IMPORTANT: Write ALL content in English."""
+
+    text = claude_request(prompt, max_tokens=1500)
     if not text:
         logger.error("Claude returned no response")
+        # Still save research data even if assessment fails
+        supabase_request("PATCH", f"company?id=eq.{company_id}", data=update_data)
         return False
 
     try:
         ev = json.loads(clean_json_response(text))
     except json.JSONDecodeError as e:
         logger.error(f"JSON parse error: {e}")
+        supabase_request("PATCH", f"company?id=eq.{company_id}", data=update_data)
         return False
 
     score = ev.get("composite_score", 0)
@@ -213,12 +296,11 @@ Antworte NUR in validem JSON:
     logger.info(f"Claude evaluation: score={score}, status={new_status}, priority={priority}")
     logger.info(f"Reasoning: {reasoning}")
 
-    # Update company
-    update_data = {
-        "composite_score": score,
-        "outreach_priority": priority,
-        "last_orchestrator_eval": datetime.now(timezone.utc).isoformat(),
-    }
+    # Add assessment fields to update
+    update_data["composite_score"] = score
+    update_data["outreach_priority"] = priority
+    if ev.get("arteq_fit"):
+        update_data["arteq_fit"] = ev["arteq_fit"]
 
     # Status promotion logic
     if new_status != old_status:
@@ -230,19 +312,20 @@ Antworte NUR in validem JSON:
             update_data["status"] = new_status
             logger.info(f"Downgrading: {old_status} -> {new_status}")
 
+    update_data["enrichment_status"] = "complete"
     supabase_request("PATCH", f"company?id=eq.{company_id}", data=update_data)
 
-    # Write dossier entry
-    status_note = ""
-    if update_data.get("status"):
-        status_note = f"\nStatus: {old_status} -> {update_data['status']}"
-    dossier_content = f"Agent Score: {score}/100 | Priority: {priority}/10{status_note}\n\n{reasoning}"
+    # Write dossier entry (delete old first)
+    supabase_request("DELETE", "company_dossier",
+        params={"company_id": f"eq.{company_id}", "source": "eq.enrich_single"})
+
+    dossier_html = ev.get("dossier_html", f"<p>Score: {score}/100 | Priority: {priority}/10</p><p>{reasoning}</p>")
 
     supabase_request("POST", "company_dossier", data={
         "company_id": company_id,
         "entry_type": "agent_action",
         "title": f"Manual Enrichment — Score: {score}/100",
-        "content": dossier_content[:2000],
+        "content": dossier_html,
         "source": "enrich_single",
         "author": "A-Line Agent",
     })

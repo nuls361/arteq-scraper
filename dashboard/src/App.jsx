@@ -1144,11 +1144,15 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                 ))}
               </div>
 
+              {company.description && (
+                <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, marginBottom:18 }}>{company.description}</div>
+              )}
+
               {/* Business */}
               <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:8 }}>Business</div>
               <div style={{ display:"grid", gridTemplateColumns:"90px 1fr", gap:"6px 12px", fontSize:12, marginBottom:18 }}>
                 {[
-                  ["Funding", company.funding_stage && company.funding_stage !== "unknown" ? company.funding_stage : "—"],
+                  ["Funding", [company.funding_stage, company.funding_amount].filter(x => x && x !== "unknown").join(" — ") || "—"],
                   ["Investors", company.investors || "—"],
                   ["Revenue", company.revenue || "—"],
                 ].map(([label, value]) => (

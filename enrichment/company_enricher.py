@@ -416,14 +416,86 @@ def enrich_company(company):
     enrichment_data = {}
     contacts_found = 0
 
-    # ── 1. Apollo Organization Enrichment ──
+    # ── 0. Claude Company Research (always runs, fills basics) ──
+    research_prompt = f"""You are a company research agent. Given a company name, search the web and return structured data for the following fields. Use sources like Crunchbase, PitchBook, LinkedIn, Tracxn, ZoomInfo, and the company's own website.
+
+Company: {company_name}
+
+Return ONLY a JSON object with these exact fields:
+
+{{
+  "domain": "primary website domain (e.g. buchhaltungsbutler.de)",
+  "industry": "industry or sector (e.g. Financial Software / SaaS)",
+  "hq": "full HQ address or city + country",
+  "founded": "founding year (integer)",
+  "headcount": "employee count or range (e.g. '11-50' or 23)",
+  "description": "2-3 sentence business description: what they do, for whom, key differentiator",
+  "funding_stage": "last known funding stage (e.g. Seed, Series A, Acquired, Bootstrapped)",
+  "funding_total": "total funding raised in USD (null if unknown)",
+  "investors": ["list", "of", "known", "investors"],
+  "revenue": "annual revenue if known (null if unknown)",
+  "acquisition": {{
+    "acquired": false,
+    "acquirer": null,
+    "date": null
+  }},
+  "founders": ["Founder Name 1", "Founder Name 2"],
+  "status": "active | acquired | defunct"
+}}
+
+Rules:
+- If a field is unknown, use null — never guess or hallucinate.
+- For headcount, prefer the most recent data point and note the source year if uncertain.
+- Return only valid JSON, no explanation, no markdown."""
+
+    research_text = claude_request(research_prompt, max_tokens=1000, system="You are a company research agent. Return only valid JSON.")
+    if research_text:
+        try:
+            research = json.loads(clean_json_response(research_text))
+            # Map research fields to enrichment_data
+            if research.get("domain") and not domain:
+                domain = research["domain"]
+                enrichment_data["domain"] = domain
+            elif research.get("domain"):
+                enrichment_data["domain"] = research["domain"]
+            if research.get("industry"):
+                enrichment_data["industry"] = research["industry"]
+            if research.get("hq"):
+                enrichment_data["hq_city"] = research["hq"]
+            if research.get("founded"):
+                enrichment_data["founded_year"] = research["founded"]
+            if research.get("headcount"):
+                enrichment_data["headcount"] = str(research["headcount"])
+            if research.get("description"):
+                enrichment_data["description"] = research["description"]
+            if research.get("funding_stage"):
+                enrichment_data["funding_stage"] = research["funding_stage"]
+            if research.get("funding_total"):
+                enrichment_data["funding_amount"] = f"${research['funding_total']:,.0f}" if isinstance(research["funding_total"], (int, float)) else str(research["funding_total"])
+            if research.get("investors"):
+                enrichment_data["investors"] = ", ".join(research["investors"]) if isinstance(research["investors"], list) else str(research["investors"])
+            if research.get("revenue"):
+                enrichment_data["revenue"] = str(research["revenue"])
+            if research.get("founders"):
+                enrichment_data["founders"] = ", ".join(research["founders"]) if isinstance(research["founders"], list) else str(research["founders"])
+
+            logger.info(f"  Claude research: domain={enrichment_data.get('domain')}, industry={enrichment_data.get('industry')}, headcount={enrichment_data.get('headcount')}")
+        except json.JSONDecodeError as e:
+            logger.error(f"  Claude research JSON parse error: {e}")
+
+    # ── 1. Apollo Organization Enrichment (supplements Claude research) ──
     if domain and APOLLO_API_KEY:
         org = enrich_via_apollo_org(domain)
         if org:
-            enrichment_data["headcount"] = str(org.get("estimated_num_employees", "")) or None
-            enrichment_data["industry"] = org.get("industry") or company.get("industry")
-            enrichment_data["founded_year"] = org.get("founded_year")
-            enrichment_data["hq_city"] = org.get("city")
+            # Apollo overwrites only if it has better data
+            if org.get("estimated_num_employees"):
+                enrichment_data["headcount"] = str(org["estimated_num_employees"])
+            if org.get("industry"):
+                enrichment_data["industry"] = org["industry"]
+            if org.get("founded_year"):
+                enrichment_data["founded_year"] = org["founded_year"]
+            if org.get("city"):
+                enrichment_data["hq_city"] = org["city"]
 
             funding = org.get("total_funding")
             if funding:
