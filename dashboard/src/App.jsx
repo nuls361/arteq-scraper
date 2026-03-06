@@ -2138,15 +2138,15 @@ export default function ALineCRM() {
                 <div style={{ fontSize:12, marginTop:4 }}>Run the scraper to populate records.</div>
               </div>
             ) : (
-              <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
                 <thead>
                   <tr>
-                    <ColHead sk="name" sort={sort} onSort={doSort}>Company</ColHead>
-                    <ColHead width={100}>Status</ColHead>
-                    <ColHead width={150} sk="industry" sort={sort} onSort={doSort}>Industry</ColHead>
-                    <ColHead width={90}>Fit</ColHead>
-                    <ColHead width={90} sk="headcount" sort={sort} onSort={doSort}>Headcount</ColHead>
-                    <ColHead width={90} sk="created_at" sort={sort} onSort={doSort}>Added</ColHead>
+                    <ColHead sk="name" sort={sort} onSort={doSort} width="16.6%">Company</ColHead>
+                    <ColHead width="16.6%">Status</ColHead>
+                    <ColHead width="16.6%" sk="industry" sort={sort} onSort={doSort}>Industry</ColHead>
+                    <ColHead width="16.6%">Fit</ColHead>
+                    <ColHead width="16.6%" sk="headcount" sort={sort} onSort={doSort}>Headcount</ColHead>
+                    <ColHead width="16.6%" sk="created_at" sort={sort} onSort={doSort}>Added</ColHead>
                   </tr>
                 </thead>
                 <tbody>
@@ -2158,13 +2158,13 @@ export default function ALineCRM() {
                       <tr key={c.id} onClick={() => { setSelectedCompany(c); setSelectedCompanyIndex(filteredCompanies.indexOf(c)); }} style={{ borderBottom:"1px solid #F7F7F8", cursor:"pointer" }}
                         onMouseEnter={e => e.currentTarget.style.background="#F7F7F8"}
                         onMouseLeave={e => e.currentTarget.style.background="transparent"}>
-                        <td style={{ padding:"9px 14px" }}>
-                          <div style={{ fontWeight:600, fontSize:13 }}>{c.name}</div>
+                        <td style={{ padding:"9px 14px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                          <div style={{ fontWeight:600, fontSize:13, overflow:"hidden", textOverflow:"ellipsis" }}>{c.name}</div>
                         </td>
                         <td style={{ padding:"9px 14px" }}>
                           <span style={{ padding:"3px 8px", borderRadius:4, fontSize:12, fontWeight:500, background:st.bg, color:st.color }}>{st.label}</span>
                         </td>
-                        <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12 }}>{c.industry||"—"}</td>
+                        <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.industry||"—"}</td>
                         <td style={{ padding:"9px 14px" }}>
                           {fit ? <span style={{ padding:"3px 8px", borderRadius:4, fontSize:12, fontWeight:500, background:fit.bg, color:fit.color }}>{c.arteq_fit}</span>
                             : <span style={{ color:"#A0A3A9", fontSize:12 }}>—</span>}
