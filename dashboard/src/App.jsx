@@ -159,16 +159,39 @@ function fileIcon(mimeType) {
 
 function cleanTitle(title) {
   if (!title) return "—";
-  // Remove common prefixes/suffixes that duplicate role detail fields
   return title
-    .replace(/^(Vollzeit|Teilzeit|Full[\s-]?time|Part[\s-]?time)\s*[-–—:]\s*/i, "")
-    .replace(/\s*[-–—]\s*(100%\s*remote[-\s]?first|remote|hybrid|on[\s-]?site|startup|scale[\s-]?up)\s*/gi, " ")
-    .replace(/\s*[-–—]\s*(m\/w\/d|m\/f\/d|d\/f\/m|all genders|gn)\s*/gi, "")
-    .replace(/\s*\(m\/w\/d\)\s*/gi, "")
-    .replace(/\s*\(all genders\)\s*/gi, "")
-    .replace(/\s*\(f\/m\/d\)\s*/gi, "")
+    // Remove employment type prefix
+    .replace(/^(Vollzeit|Teilzeit|Full[\s-]?time|Part[\s-]?time)\s*[-–—:/|]\s*/i, "")
+    // Remove trailing keyword segments after dash
+    .replace(/\s*[-–—]\s*(100%\s*remote[-\s]?first|remote[-\s]?first|remote|hybrid|on[\s-]?site|startup|scale[\s-]?up|home[\s-]?office)\s*/gi, " ")
+    // Remove gender tags in various formats
+    .replace(/\s*\(?[mwfd]\/[mwfd](?:\/[mwfd])?\)?\s*/gi, "")
+    .replace(/\s*\(all genders?\)\s*/gi, "")
+    .replace(/\s*\(gn?\)\s*/gi, "")
+    // Remove :in/:r German inclusive forms → keep base word
+    .replace(/:in\b/g, "")
+    .replace(/:r\b/g, "")
+    // Collapse multiple separators
+    .replace(/\s*[-–—/]\s*[-–—/]\s*/g, " / ")
     .replace(/\s+/g, " ")
+    .trim()
+    // Remove trailing dash or slash
+    .replace(/\s*[-–—/]\s*$/, "")
     .trim();
+}
+
+function cleanLocation(loc) {
+  if (!loc) return "—";
+  // Deduplicate repeated city names (e.g. "Hamburg, Hamburg, Germany")
+  const parts = loc.split(/[,;]\s*/);
+  const seen = new Set();
+  const unique = parts.filter(p => {
+    const key = p.trim().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return unique.join(", ") || "—";
 }
 
 const ENTRY_TYPE = {
@@ -500,7 +523,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
   timelineItems.sort((a, b) => b.date - a.date);
 
   return (
-    <div style={{ flex:1, display:"flex", flexDirection:"column", minWidth:0, fontFamily:"'Inter',-apple-system,sans-serif" }}>
+    <div style={{ flex:1, display:"flex", flexDirection:"column", minWidth:0, minHeight:0, fontFamily:"'Inter',-apple-system,sans-serif" }}>
 
       {/* ── Top Bar ── */}
       <div style={{ padding:"10px 20px", borderBottom:"1px solid #EBEBED", display:"flex", alignItems:"center", gap:12 }}>
@@ -559,13 +582,13 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
       <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
 
         {/* LEFT — Tabbed Content */}
-        <div style={{ flex:3, display:"flex", flexDirection:"column", borderRight:"1px solid #EBEBED" }}>
+        <div style={{ flex:3, display:"flex", flexDirection:"column", borderRight:"1px solid #EBEBED", minHeight:0 }}>
 
           {/* Sub-nav tabs */}
           <div style={{ display:"flex", gap:0, borderBottom:"1px solid #EBEBED", padding:"0 24px", flexShrink:0 }}>
             {[
-              { key:"activity", label:"Dossier", count:timelineItems.length },
-              { key:"contacts", label:"Contacts", count:contacts.length },
+              { key:"activity", label: role ? "Analysis" : "Dossier", count:timelineItems.length },
+              { key:"contacts", label: role ? "Hiring Manager" : "Contacts", count:contacts.length },
               { key:"candidates", label:"Candidates", count:0 },
             ].map(t => {
               const active = detailTab === t.key;
@@ -932,7 +955,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                   ["Score", role.final_score ?? role.qualification_score ?? role.rule_score ?? "—"],
                   ["Type", null],
                   ["Source", null],
-                  ["Location", role.location || "—"],
+                  ["Location", cleanLocation(role.location)],
                   ["Remote", role.is_remote ? "Yes" : "No"],
                   ["Status", role.status || "—"],
                   ["Posted", role.posted_at ? new Date(role.posted_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : "—"],
@@ -1651,7 +1674,7 @@ export default function ALineCRM() {
                           <div style={{ fontWeight:500 }}>{cleanTitle(r.title)}</div>
                           {r.requirements_summary && <div style={{ fontSize:11, color:"#A0A3A9", lineHeight:1.3, maxWidth:300, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.requirements_summary}</div>}
                         </td>
-                        <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12 }}>{r.location||"—"}</td>
+                        <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12 }}>{cleanLocation(r.location)}</td>
                         <td style={{ padding:"9px 14px" }}><SourcePill source={r.source} /></td>
                         <td style={{ padding:"9px 14px" }}>
                           {(() => {
