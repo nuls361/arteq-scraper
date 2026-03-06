@@ -245,6 +245,194 @@ function OutreachThread({ thread, contacts: threadContacts }) {
   );
 }
 
+// ── Placeholder outreach emails (German, Lena/Niels persona) ──
+const PLACEHOLDER_EMAILS_HM = [
+  {
+    id: "ph-1", direction: "outbound", subject: "Interim-Besetzung für Ihre offene Position",
+    body_html: "<p>Hallo Herr Müller,</p><p>mein Name ist Lena, ich arbeite mit Niels bei A-Line zusammen. Wir haben gesehen, dass Sie aktuell eine Interim-CFO-Position besetzen möchten.</p><p>Wir haben mehrere erfahrene Interim-CFOs in unserem Netzwerk, die sofort verfügbar wären — darunter Profile mit Series-B-Erfahrung und IPO-Readiness.</p><p>Hätten Sie diese Woche 15 Minuten für einen kurzen Austausch?</p><p>Beste Grüße,<br/>Lena</p>",
+    status: "sent", sequence_step: 1, email_opened: true, times_opened: 2, bounced: false, reply_sentiment: null,
+    sent_at: "2026-02-28T09:15:00Z", thread_id: "ph-thread-1", instantly_lead_id: "il-001",
+  },
+  {
+    id: "ph-2", direction: "outbound", subject: null,
+    body_html: "<p>Hallo Herr Müller,</p><p>kurzes Follow-up zu meiner Nachricht von letzter Woche. Wir haben gerade einen Interim-CFO aus einem ähnlichen Scale-up-Umfeld (FinTech, 80 MA) erfolgreich vermittelt.</p><p>Falls das Thema noch aktuell ist — ich schicke Ihnen gerne 2-3 anonymisierte Profile.</p><p>Viele Grüße,<br/>Lena</p>",
+    status: "sent", sequence_step: 2, email_opened: true, times_opened: 1, bounced: false, reply_sentiment: null,
+    sent_at: "2026-03-03T08:30:00Z", thread_id: "ph-thread-1", instantly_lead_id: "il-001",
+  },
+  {
+    id: "ph-3", direction: "inbound", subject: null,
+    body_html: "<p>Hallo Lena,</p><p>danke für die Nachricht. Das Thema ist tatsächlich noch aktuell — wir tun uns schwer, die richtige Person zu finden.</p><p>Schicken Sie mir gerne die Profile, dann schaue ich mir das an.</p><p>Grüße,<br/>Thomas Müller</p>",
+    status: "received", sequence_step: null, email_opened: false, times_opened: 0, bounced: false, reply_sentiment: "interested",
+    sent_at: "2026-03-04T14:22:00Z", thread_id: "ph-thread-1", instantly_lead_id: "il-001",
+  },
+  {
+    id: "ph-4", direction: "outbound", subject: null,
+    body_html: "<p>Hallo Herr Müller,</p><p>freut mich! Ich habe Niels gebeten, Ihnen drei passende Profile zusammenzustellen. Sie erhalten diese morgen per Mail.</p><p>Wäre Donnerstag oder Freitag ein guter Zeitpunkt für einen kurzen Call, um die Profile zu besprechen?</p><p>Beste Grüße,<br/>Lena</p>",
+    status: "sent", sequence_step: null, email_opened: false, times_opened: 0, bounced: false, reply_sentiment: null,
+    sent_at: "2026-03-04T16:05:00Z", thread_id: "ph-thread-1", instantly_lead_id: "il-001",
+  },
+];
+
+const PLACEHOLDER_EMAILS_AGENCY = [
+  {
+    id: "ph-a1", direction: "outbound", subject: "Partnerschaft: Interim & Fractional Executives",
+    body_html: "<p>Hallo Frau Weber,</p><p>mein Name ist Niels von A-Line. Wir vermitteln Interim- und Fractional-Executives im DACH-Raum — vor allem CFO, COO und VP-Level.</p><p>Ich habe gesehen, dass Ihre Agentur einen starken Fokus auf Finance-Positionen hat. Wir könnten uns hier gut ergänzen — wir haben Supply, Sie haben Demand.</p><p>Hätten Sie Interesse an einem kurzen Kennenlerngespräch?</p><p>Beste Grüße,<br/>Niels</p>",
+    status: "sent", sequence_step: 1, email_opened: true, times_opened: 3, bounced: false, reply_sentiment: null,
+    sent_at: "2026-02-25T10:00:00Z", thread_id: "ph-thread-a1", instantly_lead_id: "il-a01",
+  },
+  {
+    id: "ph-a2", direction: "outbound", subject: null,
+    body_html: "<p>Hallo Frau Weber,</p><p>kurzes Follow-up — wir haben aktuell 12 verfügbare Interim-CFOs und 8 Fractional-COOs im Pool. Alle mit nachweisbarer Scale-up-Erfahrung.</p><p>Falls Partnerschaft interessant klingt, blocke ich gerne 20 Minuten für einen Austausch.</p><p>VG Niels</p>",
+    status: "sent", sequence_step: 2, email_opened: true, times_opened: 1, bounced: false, reply_sentiment: null,
+    sent_at: "2026-03-01T09:15:00Z", thread_id: "ph-thread-a1", instantly_lead_id: "il-a01",
+  },
+];
+
+const PLACEHOLDER_EMAILS_CANDIDATE = [
+  {
+    id: "ph-c1", direction: "outbound", subject: "Spannende Interim-Mandate im DACH-Raum",
+    body_html: "<p>Hallo Herr Schneider,</p><p>mein Name ist Niels von A-Line. Ihr Profil ist mir über LinkedIn aufgefallen — Ihre Erfahrung als Interim-CFO im Scale-up-Umfeld passt sehr gut zu mehreren Mandaten, die wir aktuell besetzen.</p><p>Konkret suchen wir gerade einen Interim-CFO für ein Series-B FinTech in Hamburg (6-12 Monate) sowie einen Fractional-CFO für ein HealthTech in München.</p><p>Wären Sie offen für einen kurzen Austausch?</p><p>Beste Grüße,<br/>Niels</p>",
+    status: "sent", sequence_step: 1, email_opened: true, times_opened: 3, bounced: false, reply_sentiment: null,
+    sent_at: "2026-02-26T08:45:00Z", thread_id: "ph-thread-c1", instantly_lead_id: "il-c01",
+  },
+  {
+    id: "ph-c2", direction: "inbound", subject: null,
+    body_html: "<p>Hallo Niels,</p><p>danke für die Nachricht. Das FinTech-Mandat in Hamburg klingt interessant — ich bin ab April verfügbar und habe bereits zwei Series-B-Unternehmen durch die Wachstumsphase begleitet.</p><p>Können wir nächste Woche telefonieren?</p><p>Grüße,<br/>Marcus Schneider</p>",
+    status: "received", sequence_step: null, email_opened: false, times_opened: 0, bounced: false, reply_sentiment: "interested",
+    sent_at: "2026-02-27T14:10:00Z", thread_id: "ph-thread-c1", instantly_lead_id: "il-c01",
+  },
+  {
+    id: "ph-c3", direction: "outbound", subject: null,
+    body_html: "<p>Hallo Herr Schneider,</p><p>super, das passt perfekt! Ich schicke Ihnen gleich eine Kalendereinladung für Dienstag 10:00 Uhr.</p><p>Vorab: Das Mandat umfasst IPO-Readiness, Aufbau Finance-Team (3→8 Personen) und Investoren-Reporting. Budget liegt bei €1.800/Tag.</p><p>Freue mich auf den Austausch!</p><p>VG Niels</p>",
+    status: "sent", sequence_step: null, email_opened: true, times_opened: 1, bounced: false, reply_sentiment: null,
+    sent_at: "2026-02-27T15:30:00Z", thread_id: "ph-thread-c1", instantly_lead_id: "il-c01",
+  },
+];
+
+function EmailFeed({ emails, entityName, emptyMessage }) {
+  if (!emails || emails.length === 0) {
+    return (
+      <div style={{ padding:32, textAlign:"center", color:"#A0A3A9", background:"#FAFAFA", borderRadius:10, border:"1px solid #EBEBED", marginTop:16 }}>
+        <div style={{ fontSize:22, marginBottom:6 }}>📨</div>
+        <div style={{ fontSize:13, fontWeight:500 }}>{emptyMessage || "No outreach yet"}</div>
+        <div style={{ fontSize:12, marginTop:4, color:"#A0A3A9" }}>Outreach emails will appear here once sent.</div>
+      </div>
+    );
+  }
+
+  const firstSubject = emails.find(e => e.subject)?.subject;
+  const totalOpens = emails.reduce((sum, e) => sum + (e.times_opened || 0), 0);
+  const hasBounce = emails.some(e => e.bounced);
+  const replySentiment = emails.find(e => e.reply_sentiment)?.reply_sentiment;
+  const maxStep = Math.max(...emails.filter(e => e.sequence_step).map(e => e.sequence_step), 0);
+
+  return (
+    <div style={{ marginTop:16 }}>
+      {/* Thread header */}
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+        <span style={{ fontSize:14 }}>📨</span>
+        <span style={{ fontSize:12, fontWeight:600, color:"#1D4ED8" }}>Email Thread with {entityName}</span>
+        <span style={{ fontSize:10, color:"#A0A3A9" }}>{emails.length} messages</span>
+        <span style={{ flex:1 }} />
+        {replySentiment && (
+          <span style={{
+            padding:"2px 8px", borderRadius:4, fontSize:10, fontWeight:600,
+            background: replySentiment === "interested" || replySentiment === "positive" ? "#D1FAE5" : replySentiment === "not_interested" ? "#FDECEC" : "#FEF3C7",
+            color: replySentiment === "interested" || replySentiment === "positive" ? "#065F46" : replySentiment === "not_interested" ? "#C13030" : "#92400E",
+          }}>{replySentiment}</span>
+        )}
+      </div>
+
+      {/* Messages */}
+      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+        {emails.map((msg, i) => {
+          const isOutbound = msg.direction === "outbound";
+          const date = msg.sent_at ? new Date(msg.sent_at) : null;
+          const senderName = isOutbound
+            ? (msg.sequence_step === 1 || msg.sequence_step === 2 ? "Lena" : "Niels")
+            : entityName;
+
+          return (
+            <div key={msg.id || i} style={{
+              maxWidth:"85%",
+              alignSelf: isOutbound ? "flex-end" : "flex-start",
+            }}>
+              {/* Bubble */}
+              <div style={{
+                padding:"12px 16px",
+                borderRadius: isOutbound ? "12px 12px 4px 12px" : "12px 12px 12px 4px",
+                background: isOutbound ? "#F0F4FF" : "#F7F7F8",
+                border: isOutbound ? "1px solid #DBEAFE" : "1px solid #EBEBED",
+              }}>
+                {/* Sender + timestamp */}
+                <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
+                  <span style={{ fontSize:11, fontWeight:700, color: isOutbound ? "#1D4ED8" : "#065F46" }}>{senderName}</span>
+                  {msg.sequence_step && (
+                    <span style={{ padding:"1px 6px", borderRadius:3, fontSize:9, fontWeight:600, background:"#EDE9FE", color:"#6D28D9" }}>Step {msg.sequence_step}</span>
+                  )}
+                  <span style={{ flex:1 }} />
+                  <span style={{ fontSize:10, color:"#A0A3A9" }}>
+                    {date ? date.toLocaleDateString("en-GB", { day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" }) : ""}
+                  </span>
+                </div>
+
+                {/* Subject (first message only) */}
+                {msg.subject && i === 0 && (
+                  <div style={{ fontSize:12, fontWeight:700, color:"#1A1A1A", marginBottom:6 }}>{msg.subject}</div>
+                )}
+
+                {/* Body */}
+                <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6 }}
+                  dangerouslySetInnerHTML={{ __html: msg.body_html || msg.body || "" }}
+                />
+              </div>
+
+              {/* Tracking row for outbound */}
+              {isOutbound && (
+                <div style={{ display:"flex", gap:8, marginTop:4, justifyContent:"flex-end", flexWrap:"wrap" }}>
+                  {msg.email_opened && (
+                    <span style={{ fontSize:10, color:"#065F46", fontWeight:500 }}>
+                      Opened {msg.times_opened > 1 ? `${msg.times_opened}x` : ""}
+                    </span>
+                  )}
+                  {msg.bounced && (
+                    <span style={{ fontSize:10, color:"#C13030", fontWeight:600 }}>Bounced</span>
+                  )}
+                  {!msg.email_opened && !msg.bounced && msg.status === "sent" && (
+                    <span style={{ fontSize:10, color:"#A0A3A9" }}>Delivered</span>
+                  )}
+                </div>
+              )}
+
+              {/* Reply sentiment for inbound */}
+              {!isOutbound && msg.reply_sentiment && (
+                <div style={{ display:"flex", gap:6, marginTop:4 }}>
+                  <span style={{
+                    fontSize:10, fontWeight:600, padding:"2px 8px", borderRadius:4,
+                    background: msg.reply_sentiment === "interested" || msg.reply_sentiment === "positive" ? "#D1FAE5" : "#FEF3C7",
+                    color: msg.reply_sentiment === "interested" || msg.reply_sentiment === "positive" ? "#065F46" : "#92400E",
+                  }}>{msg.reply_sentiment}</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Summary bar */}
+      <div style={{
+        display:"flex", gap:12, alignItems:"center", marginTop:12, padding:"8px 12px",
+        background:"#F7F7F8", borderRadius:6, fontSize:11, color:"#6B6F76",
+      }}>
+        {maxStep > 0 && <span>Sequence: Step {maxStep}</span>}
+        <span>Opens: {totalOpens}</span>
+        <span>Bounced: {hasBounce ? "Yes" : "No"}</span>
+        {replySentiment && <span>Sentiment: <strong style={{ color: replySentiment === "interested" ? "#065F46" : "#92400E" }}>{replySentiment}</strong></span>}
+      </div>
+    </div>
+  );
+}
+
 function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged, currentIndex, totalCount, onNavigate, tabLabel, role, person, companyRoles = [], onOpenRole, onOpenPerson, onOpenCompany }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1010,32 +1198,37 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                 /* Hiring Manager view for roles */
                 <div>
                   {role.hiring_manager_name ? (
-                    <div style={{ border:"1px solid #EBEBED", borderRadius:10, padding:"20px 22px", background:"#FAFAFA" }}>
-                      <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:16 }}>
-                        <div style={{ width:48, height:48, borderRadius:10, background:"#1A1A1A", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:700, color:"#fff", flexShrink:0 }}>
-                          {role.hiring_manager_name.charAt(0)}
+                    <>
+                      <div style={{ border:"1px solid #EBEBED", borderRadius:10, padding:"20px 22px", background:"#FAFAFA" }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:16 }}>
+                          <div style={{ width:48, height:48, borderRadius:10, background:"#1A1A1A", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:700, color:"#fff", flexShrink:0 }}>
+                            {role.hiring_manager_name.charAt(0)}
+                          </div>
+                          <div>
+                            <div style={{ fontSize:16, fontWeight:700, color:"#1A1A1A" }}>{role.hiring_manager_name}</div>
+                            {role.hiring_manager_title && <div style={{ fontSize:12, color:"#6B6F76", marginTop:2 }}>{role.hiring_manager_title}</div>}
+                          </div>
+                          {role.hiring_manager_confidence && (
+                            <span style={{
+                              marginLeft:"auto", padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:600,
+                              background: role.hiring_manager_confidence === "high" ? "#D1FAE5" : role.hiring_manager_confidence === "medium" ? "#FEF3C7" : "#F2F3F5",
+                              color: role.hiring_manager_confidence === "high" ? "#065F46" : role.hiring_manager_confidence === "medium" ? "#92400E" : "#6B6F76",
+                            }}>{role.hiring_manager_confidence} confidence</span>
+                          )}
                         </div>
-                        <div>
-                          <div style={{ fontSize:16, fontWeight:700, color:"#1A1A1A" }}>{role.hiring_manager_name}</div>
-                          {role.hiring_manager_title && <div style={{ fontSize:12, color:"#6B6F76", marginTop:2 }}>{role.hiring_manager_title}</div>}
+                        <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                          {role.hiring_manager_linkedin && (
+                            <a href={role.hiring_manager_linkedin} target="_blank" rel="noopener" onClick={e => e.stopPropagation()} style={{
+                              padding:"6px 14px", borderRadius:6, background:"#0A66C2", color:"#fff",
+                              fontSize:12, fontWeight:600, textDecoration:"none", display:"inline-flex", alignItems:"center", gap:4,
+                            }}>LinkedIn Profile</a>
+                          )}
                         </div>
-                        {role.hiring_manager_confidence && (
-                          <span style={{
-                            marginLeft:"auto", padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:600,
-                            background: role.hiring_manager_confidence === "high" ? "#D1FAE5" : role.hiring_manager_confidence === "medium" ? "#FEF3C7" : "#F2F3F5",
-                            color: role.hiring_manager_confidence === "high" ? "#065F46" : role.hiring_manager_confidence === "medium" ? "#92400E" : "#6B6F76",
-                          }}>{role.hiring_manager_confidence} confidence</span>
-                        )}
                       </div>
-                      <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-                        {role.hiring_manager_linkedin && (
-                          <a href={role.hiring_manager_linkedin} target="_blank" rel="noopener" onClick={e => e.stopPropagation()} style={{
-                            padding:"6px 14px", borderRadius:6, background:"#0A66C2", color:"#fff",
-                            fontSize:12, fontWeight:600, textDecoration:"none", display:"inline-flex", alignItems:"center", gap:4,
-                          }}>LinkedIn Profile</a>
-                        )}
-                      </div>
-                    </div>
+
+                      {/* Email Feed for Hiring Manager */}
+                      <EmailFeed emails={PLACEHOLDER_EMAILS_HM} entityName={role.hiring_manager_name} />
+                    </>
                   ) : (
                     <div style={{ padding:40, textAlign:"center", color:"#A0A3A9" }}>
                       <div style={{ fontSize:22, marginBottom:6 }}>🎯</div>
@@ -1341,6 +1534,23 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                     </div>
                   );
                 })}
+              </div>
+
+              {/* Outreach Tracking Summary */}
+              <div style={{ marginTop:20, paddingTop:16, borderTop:"1px solid #EBEBED" }}>
+                <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:10 }}>Outreach Status</div>
+                <div style={{ display:"grid", gridTemplateColumns:"100px 1fr", gap:"6px 12px", fontSize:12 }}>
+                  <div style={{ color:"#A0A3A9" }}>Sequence</div>
+                  <div style={{ color:"#1A1A1A", fontWeight:600 }}>Step 2 of 4</div>
+                  <div style={{ color:"#A0A3A9" }}>Opens</div>
+                  <div style={{ color:"#1A1A1A" }}>3 total</div>
+                  <div style={{ color:"#A0A3A9" }}>Bounced</div>
+                  <div style={{ color:"#065F46" }}>No</div>
+                  <div style={{ color:"#A0A3A9" }}>Last Activity</div>
+                  <div style={{ color:"#1A1A1A" }}>4 Mar 2026</div>
+                  <div style={{ color:"#A0A3A9" }}>Sentiment</div>
+                  <div><span style={{ padding:"2px 8px", borderRadius:4, fontSize:10, fontWeight:600, background:"#D1FAE5", color:"#065F46" }}>interested</span></div>
+                </div>
               </div>
 
               {/* Company section */}
@@ -2007,6 +2217,9 @@ export default function ALineCRM() {
                           ))}
                         </div>
                       )}
+
+                      {/* Email Feed for Agency Contacts */}
+                      <EmailFeed emails={PLACEHOLDER_EMAILS_AGENCY} entityName={agencyContacts[0]?.name || "Agency Contact"} />
                     </div>
                   )}
 
@@ -2127,6 +2340,12 @@ export default function ALineCRM() {
                     </div>
                   </div>
                 )}
+
+                {/* Email Feed for candidate */}
+                <div style={{ marginBottom:20 }}>
+                  <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:8 }}>Outreach</div>
+                  <EmailFeed emails={PLACEHOLDER_EMAILS_CANDIDATE} entityName={selectedCandidate.full_name} />
+                </div>
               </div>
 
               {/* RIGHT — Details */}
