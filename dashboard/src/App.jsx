@@ -612,6 +612,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
               { key:"activity", label:"Analysis", count:timelineItems.length },
               { key:"contacts", label:"Hiring Manager", count: role.hiring_manager_name ? 1 : 0 },
               { key:"candidates", label:"Candidates", count:roleMatches.length },
+              { key:"company", label:"Company", count:null },
             ] : [
               { key:"summary", label:"Summary" },
               { key:"activity", label:"Dossier", count:timelineItems.length },
@@ -1164,7 +1165,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
               </div>
             )}
 
-            {/* ── Company Tab (person view) ── */}
+            {/* ── Company Tab (role + person view) ── */}
             {detailTab === "company" && company && (
               <div>
                 <div style={{ background:"#F7F7F8", borderRadius:10, padding:"16px 18px", marginBottom:20, cursor:"pointer" }}
