@@ -740,9 +740,9 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
 
                             {/* Content */}
                             {entry.content && !(entry.entry_type === "file" && entry.content.startsWith("File uploaded:")) && (
-                              <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, whiteSpace:"pre-wrap" }}>
-                                {entry.content}
-                              </div>
+                              <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6 }}
+                                dangerouslySetInnerHTML={{ __html: entry.content }}
+                              />
                             )}
                           </div>
                         </div>
