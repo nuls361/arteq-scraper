@@ -914,7 +914,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                         onMouseEnter={e => e.currentTarget.style.background="#EBEBED"}
                         onMouseLeave={e => e.currentTarget.style.background="#F7F7F8"}>
                         <TierPill tier={r.tier} />
-                        <span style={{ fontWeight:600, color:"#1A1A1A", flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.title}</span>
+                        <span style={{ fontWeight:600, color:"#1A1A1A", flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cleanTitle(r.title)}</span>
                         <Score v={r.final_score ?? r.rule_score} />
                       </div>
                     ))}
@@ -1103,7 +1103,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                           onMouseEnter={e => e.currentTarget.style.background="#EBEBED"}
                           onMouseLeave={e => e.currentTarget.style.background="#F7F7F8"}>
                           <TierPill tier={r.tier} />
-                          <span style={{ fontWeight:600, color:"#1A1A1A", flex:1 }}>{r.title}</span>
+                          <span style={{ fontWeight:600, color:"#1A1A1A", flex:1 }}>{cleanTitle(r.title)}</span>
                           <Score v={r.final_score ?? r.rule_score} />
                         </div>
                       ))}
@@ -1207,7 +1207,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                         onMouseEnter={e => e.currentTarget.style.background="#EBEBED"}
                         onMouseLeave={e => e.currentTarget.style.background="#F7F7F8"}>
                         <TierPill tier={r.tier} />
-                        <span style={{ fontWeight:600, color:"#1A1A1A", flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.title}</span>
+                        <span style={{ fontWeight:600, color:"#1A1A1A", flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cleanTitle(r.title)}</span>
                         <Score v={r.final_score ?? r.rule_score} />
                       </div>
                     ))}
@@ -1644,7 +1644,7 @@ export default function ALineCRM() {
                           {co?.is_agency && <span style={{ fontSize:10, color:"#E5484D", fontWeight:500 }}>Agency</span>}
                         </td>
                         <td style={{ padding:"9px 14px" }}>
-                          <div style={{ fontWeight:500 }}>{r.title}</div>
+                          <div style={{ fontWeight:500 }}>{cleanTitle(r.title)}</div>
                           {r.requirements_summary && <div style={{ fontSize:11, color:"#A0A3A9", lineHeight:1.3, maxWidth:300, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.requirements_summary}</div>}
                         </td>
                         <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12 }}>{r.location||"—"}</td>
@@ -1824,7 +1824,7 @@ export default function ALineCRM() {
                           onMouseEnter={e => e.currentTarget.style.background="#F7F7F8"}
                           onMouseLeave={e => e.currentTarget.style.background="transparent"}>
                           <td style={{ padding:"9px 14px" }}>
-                            <div style={{ fontWeight:600, fontSize:12 }}>{role.title || "—"}</div>
+                            <div style={{ fontWeight:600, fontSize:12 }}>{cleanTitle(role.title) || "—"}</div>
                             <div style={{ fontSize:10, color:"#A0A3A9" }}>{co.name || "—"}</div>
                           </td>
                           <td style={{ padding:"9px 14px" }}>
