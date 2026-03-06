@@ -88,17 +88,6 @@ function MatchScorePill({ score }) {
   return <span style={{ padding:"3px 8px", borderRadius:4, fontSize:12, fontWeight:700, background:bg, color, fontVariantNumeric:"tabular-nums" }}>{score}</span>;
 }
 
-const MATCH_STATUS = {
-  proposed: { bg:"#EDE9FE", color:"#6D28D9" },
-  reviewed: { bg:"#DBEAFE", color:"#1D4ED8" },
-  accepted: { bg:"#D1FAE5", color:"#065F46" },
-  rejected: { bg:"#FDECEC", color:"#C13030" },
-};
-
-function MatchStatusPill({ status }) {
-  const s = MATCH_STATUS[status] || { bg:"#F2F3F5", color:"#6B6F76" };
-  return <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:600, background:s.bg, color:s.color, textTransform:"capitalize" }}>{status || "—"}</span>;
-}
 
 function ColHead({ children, width, align, sk, sort, onSort }) {
   const active = sk && sort?.key === sk;
@@ -291,7 +280,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
   const [savingContact, setSavingContact] = useState(false);
   const [outreachThreads, setOutreachThreads] = useState([]);
   const [threadContacts, setThreadContacts] = useState([]);
-  const [detailTab, setDetailTab] = useState("activity");
+  const [detailTab, setDetailTab] = useState("summary");
   const [enriching, setEnriching] = useState(false);
   const [companyAgentLogs, setCompanyAgentLogs] = useState([]);
   const [roleMatches, setRoleMatches] = useState([]);
@@ -302,30 +291,31 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
     if (!company) return;
     setLoading(true);
     try {
-      const roleId = role?.id || (person?._isHiringManager && person?._roleId);
-      const contactId = person && !person._isHiringManager ? person.id : null;
-      const fetches = [];
+      const personId = person?.id;
+      const isRealContact = personId && !personId.toString().startsWith("hm_");
+      let query;
 
-      // Always fetch company-level entries (where role_id and contact_id are null)
-      fetches.push(supaFetch("company_dossier", `company_id=eq.${company.id}&role_id=is.null&contact_id=is.null&order=created_at.desc&limit=200`));
-
-      // Role-specific entries (when viewing a role or HM person)
-      if (roleId) {
-        fetches.push(supaFetch("company_dossier", `role_id=eq.${roleId}&order=created_at.desc&limit=200`));
+      if (person) {
+        // Person view: ONLY this person's entries
+        if (isRealContact) {
+          query = `contact_id=eq.${personId}&order=created_at.desc&limit=200`;
+        } else if (person._isHiringManager && person._roleId) {
+          // Virtual HM — show role entries that mention this DM
+          query = `role_id=eq.${person._roleId}&entry_type=in.(role_dm_research)&order=created_at.desc&limit=200`;
+        } else {
+          query = `company_id=eq.${company.id}&role_id=is.null&contact_id=is.null&order=created_at.desc&limit=200`;
+        }
+      } else if (role) {
+        // Role view: ONLY this role's entries
+        query = `role_id=eq.${role.id}&order=created_at.desc&limit=200`;
+      } else {
+        // Company view: ONLY company-level entries
+        query = `company_id=eq.${company.id}&role_id=is.null&contact_id=is.null&order=created_at.desc&limit=200`;
       }
 
-      // Contact-specific entries (when viewing a regular contact person)
-      if (contactId) {
-        fetches.push(supaFetch("company_dossier", `contact_id=eq.${contactId}&order=created_at.desc&limit=200`));
-      }
-
-      const results = await Promise.all(fetches);
-      const merged = results.flatMap(r => r || []);
-      // Deduplicate by id
-      const seen = new Set();
-      const deduped = merged.filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true; });
-      deduped.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      setEntries(deduped);
+      const data = await supaFetch("company_dossier", query);
+      const sorted = (data || []).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      setEntries(sorted);
     } catch (e) {
       console.error("Dossier load error:", e);
     }
@@ -462,7 +452,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
       setNoteTitle("");
       setNoteContent("");
       await loadEntries();
-      setDetailTab("activity");
+      setDetailTab("summary");
     } catch (e) {
       console.error("Save note error:", e);
       alert("Could not save note: " + e.message);
@@ -612,11 +602,22 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
 
           {/* Sub-nav tabs */}
           <div style={{ display:"flex", gap:0, borderBottom:"1px solid #EBEBED", padding:"0 24px", flexShrink:0 }}>
-            {[
-              { key:"activity", label: role ? "Analysis" : "Dossier", count:timelineItems.length },
-              { key:"contacts", label: role ? "Hiring Manager" : "Contacts", count: role ? (role.hiring_manager_name ? 1 : 0) : contacts.length },
+            {(person ? [
+              { key:"summary", label:"Summary" },
+              { key:"activity", label:"Dossier", count:timelineItems.length },
+              { key:"company", label:"Company", count:null },
+              { key:"roles", label:"Roles", count:companyRoles.length },
+            ] : role ? [
+              { key:"summary", label:"Summary" },
+              { key:"activity", label:"Analysis", count:timelineItems.length },
+              { key:"contacts", label:"Hiring Manager", count: role.hiring_manager_name ? 1 : 0 },
+              { key:"candidates", label:"Candidates", count:roleMatches.length },
+            ] : [
+              { key:"summary", label:"Summary" },
+              { key:"activity", label:"Dossier", count:timelineItems.length },
+              { key:"contacts", label:"Contacts", count:contacts.length },
               { key:"candidates", label:"Candidates", count:0 },
-            ].map(t => {
+            ]).map(t => {
               const active = detailTab === t.key;
               return (
                 <button key={t.key} onClick={() => setDetailTab(t.key)} style={{
@@ -632,39 +633,264 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
           {/* Tab content */}
           <div style={{ flex:1, overflow:"auto", padding:"20px 24px" }}>
 
-            {/* ── Activity Tab ── */}
-            {detailTab === "activity" && (
-              <>
-                {/* Company Summary Card */}
-                {!person && !role && company && (
+            {/* ── Summary Tab ── */}
+            {detailTab === "summary" && (
+              person ? (
+                /* Person Summary */
+                <div>
+                  {/* Person header card */}
                   <div style={{ background:"#F7F7F8", borderRadius:10, padding:"16px 18px", marginBottom:20 }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
-                      <div style={{ width:36, height:36, borderRadius:8, background:"#1A1A1A", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:800, fontSize:15, flexShrink:0 }}>
-                        {company.name?.charAt(0) || "?"}
+                    <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                      <div style={{ width:48, height:48, borderRadius:10, background:"#1A1A1A", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:800, fontSize:18, flexShrink:0 }}>
+                        {person.name?.charAt(0) || "?"}
                       </div>
-                      <div>
-                        <div style={{ fontSize:14, fontWeight:700, color:"#1A1A1A" }}>{company.name}</div>
-                        <div style={{ fontSize:11, color:"#6B6F76" }}>
-                          {[company.industry, company.hq_city, company.headcount ? `~${company.headcount} employees` : null].filter(Boolean).join(" · ") || "—"}
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:15, fontWeight:700, color:"#1A1A1A" }}>{person.name}</div>
+                        <div style={{ fontSize:12, color:"#6B6F76", marginTop:2 }}>
+                          {[person.role_at_company || person.title, person.company_name || company?.name].filter(Boolean).join(" at ")}
                         </div>
+                        {person.linkedin_url && (
+                          <a href={person.linkedin_url} target="_blank" rel="noopener" style={{ fontSize:11, color:"#0A66C2", textDecoration:"none", fontWeight:600, marginTop:4, display:"inline-block" }}>LinkedIn Profile ↗</a>
+                        )}
                       </div>
                     </div>
-                    <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                  </div>
+
+                  {/* Decision Maker assessment */}
+                  <div style={{ marginBottom:20 }}>
+                    <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:8 }}>Decision Maker Assessment</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 16px", background:"#F7F7F8", borderRadius:8 }}>
+                      <div style={{
+                        width:40, height:40, borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center",
+                        fontSize:16, fontWeight:800,
+                        background: person.is_decision_maker ? "#FDECEC" : "#F2F3F5",
+                        color: person.is_decision_maker ? "#C13030" : "#A0A3A9",
+                      }}>
+                        {person.decision_maker_score != null ? person.decision_maker_score : (person.is_decision_maker ? "DM" : "—")}
+                      </div>
+                      <div>
+                        <div style={{ fontSize:13, fontWeight:600, color:"#1A1A1A" }}>
+                          {person.is_decision_maker ? "Decision Maker" : "Not flagged as DM"}
+                        </div>
+                        {person.seniority && (
+                          <div style={{ fontSize:11, color:"#6B6F76", marginTop:2 }}>Seniority: {person.seniority}</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Personal Hooks */}
+                  {person.personal_hooks && (
+                    <div style={{ marginBottom:20 }}>
+                      <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:8 }}>Personal Hooks</div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                        {(Array.isArray(person.personal_hooks) ? person.personal_hooks : [person.personal_hooks]).map((hook, i) => (
+                          <div key={i} style={{ fontSize:12, color:"#1A1A1A", padding:"8px 12px", background:"#EDE9FE", borderRadius:6, lineHeight:1.5 }}>
+                            {hook}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Contact details compact grid */}
+                  <div style={{ marginBottom:20 }}>
+                    <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:8 }}>Contact Details</div>
+                    <div style={{ display:"grid", gridTemplateColumns:"80px 1fr", gap:"6px 12px", fontSize:12, background:"#F7F7F8", padding:"12px 16px", borderRadius:8 }}>
+                      {person.email && <>
+                        <div style={{ color:"#A0A3A9" }}>Email</div>
+                        <div><a href={`mailto:${person.email}`} style={{ color:"#5B5FC7", textDecoration:"none" }}>{person.email}</a></div>
+                      </>}
+                      {person.phone && <>
+                        <div style={{ color:"#A0A3A9" }}>Phone</div>
+                        <div style={{ color:"#1A1A1A" }}>{person.phone}</div>
+                      </>}
+                      {person.seniority && <>
+                        <div style={{ color:"#A0A3A9" }}>Seniority</div>
+                        <div style={{ color:"#1A1A1A" }}>{person.seniority}</div>
+                      </>}
+                      {person.source && <>
+                        <div style={{ color:"#A0A3A9" }}>Source</div>
+                        <div><SourcePill source={person.source} /></div>
+                      </>}
+                    </div>
+                  </div>
+                </div>
+              ) : role ? (
+                /* Role Summary */
+                <div>
+                  {/* Role header card */}
+                  <div style={{ background:"#F7F7F8", borderRadius:10, padding:"16px 18px", marginBottom:20 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+                      <TierPill tier={role.tier} />
+                      <div style={{ fontSize:15, fontWeight:700, color:"#1A1A1A", flex:1 }}>{cleanTitle(role.title)}</div>
+                      <Score v={role.final_score ?? role.qualification_score ?? role.rule_score} />
+                    </div>
+                    <div style={{ fontSize:12, color:"#6B6F76", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
+                      <span>{company?.name}</span>
+                      {role.location && <span>{cleanLocation(role.location)}</span>}
+                      <EngPill type={role.engagement_type} />
+                    </div>
+                  </div>
+
+                  {/* Sourcing Brief */}
+                  {(() => {
+                    const brief = typeof role.sourcing_brief === "string" ? (() => { try { return JSON.parse(role.sourcing_brief); } catch { return null; } })() : role.sourcing_brief;
+                    if (!brief) return null;
+                    return (
+                      <div style={{ marginBottom:20 }}>
+                        <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:10 }}>Sourcing Brief</div>
+
+                        {brief.must_have && brief.must_have.length > 0 && (
+                          <div style={{ marginBottom:12 }}>
+                            <div style={{ fontSize:11, fontWeight:600, color:"#065F46", marginBottom:4 }}>Must-Have</div>
+                            <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                              {brief.must_have.map((item, i) => (
+                                <span key={i} style={{ padding:"4px 10px", borderRadius:4, fontSize:11, background:"#D1FAE5", color:"#065F46" }}>{item}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {brief.nice_to_have && brief.nice_to_have.length > 0 && (
+                          <div style={{ marginBottom:12 }}>
+                            <div style={{ fontSize:11, fontWeight:600, color:"#AD5700", marginBottom:4 }}>Nice-to-Have</div>
+                            <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                              {brief.nice_to_have.map((item, i) => (
+                                <span key={i} style={{ padding:"4px 10px", borderRadius:4, fontSize:11, background:"#FFF0E1", color:"#AD5700" }}>{item}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {brief.ideal_candidate_profile && (
+                          <div style={{ marginBottom:12 }}>
+                            <div style={{ fontSize:11, fontWeight:600, color:"#6D28D9", marginBottom:4 }}>Ideal Profile</div>
+                            <div style={{ fontSize:11, color:"#6B6F76", background:"#F7F7F8", padding:"8px 10px", borderRadius:6, lineHeight:1.5 }}>
+                              {brief.ideal_candidate_profile.background && <div><strong>Background:</strong> {brief.ideal_candidate_profile.background}</div>}
+                              {brief.ideal_candidate_profile.years_experience && <div><strong>Experience:</strong> {brief.ideal_candidate_profile.years_experience}</div>}
+                              {brief.ideal_candidate_profile.titles_to_search && <div><strong>Target titles:</strong> {brief.ideal_candidate_profile.titles_to_search.join(", ")}</div>}
+                            </div>
+                          </div>
+                        )}
+
+                        {brief.red_flags && brief.red_flags.length > 0 && (
+                          <div style={{ marginBottom:12 }}>
+                            <div style={{ fontSize:11, fontWeight:600, color:"#C13030", marginBottom:4 }}>Red Flags</div>
+                            <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                              {brief.red_flags.map((item, i) => (
+                                <span key={i} style={{ padding:"4px 10px", borderRadius:4, fontSize:11, background:"#FDECEC", color:"#C13030" }}>{item}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {(brief.urgency || brief.compensation_signal) && (
+                          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                            {brief.urgency && <span style={{ padding:"4px 10px", borderRadius:4, fontSize:11, fontWeight:600, background:"#FFF0E1", color:"#AD5700" }}>Urgency: {brief.urgency}</span>}
+                            {brief.compensation_signal && <span style={{ padding:"4px 10px", borderRadius:4, fontSize:11, fontWeight:600, background:"#F2F3F5", color:"#6B6F76" }}>{brief.compensation_signal}</span>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Engagement Reasoning */}
+                  {role.engagement_reasoning && (
+                    <div style={{ marginBottom:20 }}>
+                      <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>Engagement Reasoning</div>
+                      <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.7, background:"#F7F7F8", padding:"12px 16px", borderRadius:8, whiteSpace:"pre-wrap" }}>{role.engagement_reasoning}</div>
+                    </div>
+                  )}
+
+                  {/* Outreach Angle */}
+                  {role.outreach_angle && (
+                    <div style={{ marginBottom:20 }}>
+                      <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>Outreach Angle</div>
+                      <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.7, background:"#EDE9FE", padding:"12px 16px", borderRadius:8, whiteSpace:"pre-wrap" }}>{role.outreach_angle}</div>
+                    </div>
+                  )}
+
+                  {/* Requirements Summary */}
+                  {role.requirements_summary && (
+                    <div style={{ marginBottom:20 }}>
+                      <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>Requirements</div>
+                      <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.7, background:"#F7F7F8", padding:"12px 16px", borderRadius:8, whiteSpace:"pre-wrap" }}>{role.requirements_summary}</div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Company Summary */
+                <div>
+                  {/* Summary text highlighted card */}
+                  {company.summary && (
+                    <div style={{ background:"#EDE9FE", borderRadius:10, padding:"16px 18px", marginBottom:20, border:"1px solid #DDD6FE" }}>
+                      <div style={{ fontSize:13, color:"#1A1A1A", lineHeight:1.7, fontWeight:500 }}>{company.summary}</div>
+                    </div>
+                  )}
+
+                  {/* Key metrics row */}
+                  <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:20 }}>
+                    {company.composite_score != null && (
+                      <span style={{ padding:"4px 12px", borderRadius:6, fontSize:12, fontWeight:700, background:"#F2F3F5", color:"#1A1A1A" }}>Score: {company.composite_score}</span>
+                    )}
+                    {company.arteq_fit && fitColors[company.arteq_fit] && (
+                      <span style={{ padding:"4px 12px", borderRadius:6, fontSize:12, fontWeight:600, background:fitColors[company.arteq_fit].bg, color:fitColors[company.arteq_fit].color }}>{company.arteq_fit} fit</span>
+                    )}
+                    {company.revenue_estimate && (
+                      <span style={{ padding:"4px 12px", borderRadius:6, fontSize:12, fontWeight:500, background:"#D1FAE5", color:"#065F46" }}>{company.revenue_estimate}</span>
+                    )}
+                  </div>
+
+                  {/* Description */}
+                  {company.description && (
+                    <div style={{ marginBottom:20 }}>
+                      <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>Description</div>
+                      <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.7 }}>{company.description}</div>
+                    </div>
+                  )}
+
+                  {/* Business context */}
+                  <div style={{ marginBottom:20 }}>
+                    <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:8 }}>Business Context</div>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
                       {company.funding_stage && company.funding_stage !== "unknown" && (
-                        <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background:"#DBEAFE", color:"#1D4ED8" }}>{company.funding_stage}</span>
+                        <div style={{ background:"#F7F7F8", borderRadius:6, padding:"10px 12px" }}>
+                          <div style={{ fontSize:10, color:"#A0A3A9", marginBottom:2 }}>Funding</div>
+                          <div style={{ fontSize:12, fontWeight:600, color:"#1A1A1A" }}>{company.funding_stage}</div>
+                        </div>
                       )}
-                      {company.composite_score != null && (
-                        <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background:"#F2F3F5", color:"#1A1A1A" }}>Score: {company.composite_score}</span>
+                      {company.headcount && (
+                        <div style={{ background:"#F7F7F8", borderRadius:6, padding:"10px 12px" }}>
+                          <div style={{ fontSize:10, color:"#A0A3A9", marginBottom:2 }}>Headcount</div>
+                          <div style={{ fontSize:12, fontWeight:600, color:"#1A1A1A" }}>~{company.headcount}</div>
+                        </div>
                       )}
-                      {companyRoles.length > 0 && (
-                        <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background:"#EDE9FE", color:"#6D28D9" }}>{companyRoles.length} {companyRoles.length === 1 ? "role" : "roles"}</span>
-                      )}
-                      {contacts.length > 0 && (
-                        <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background:"#D1FAE5", color:"#065F46" }}>{contacts.length} {contacts.length === 1 ? "contact" : "contacts"}</span>
+                      {company.industry && (
+                        <div style={{ background:"#F7F7F8", borderRadius:6, padding:"10px 12px" }}>
+                          <div style={{ fontSize:10, color:"#A0A3A9", marginBottom:2 }}>Industry</div>
+                          <div style={{ fontSize:12, fontWeight:600, color:"#1A1A1A" }}>{company.industry}</div>
+                        </div>
                       )}
                     </div>
                   </div>
-                )}
+
+                  {/* Dossier HTML - company_analysis entry */}
+                  {entries.filter(e => e.entry_type === "company_analysis").map(e => (
+                    <div key={e.id} style={{ marginBottom:20 }}>
+                      <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>AI Analysis</div>
+                      <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.8, background:"#F7F7F8", padding:"14px 16px", borderRadius:8 }}
+                        dangerouslySetInnerHTML={{ __html: e.content }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+
+            {/* ── Activity Tab ── */}
+            {detailTab === "activity" && (
+              <>
                 {loading ? (
                   <div style={{ padding:40, textAlign:"center", color:"#A0A3A9", fontSize:13 }}>Loading…</div>
                 ) : timelineItems.length === 0 ? (
@@ -938,6 +1164,123 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
               </div>
             )}
 
+            {/* ── Company Tab (person view) ── */}
+            {detailTab === "company" && company && (
+              <div>
+                <div style={{ background:"#F7F7F8", borderRadius:10, padding:"16px 18px", marginBottom:20, cursor:"pointer" }}
+                  onClick={() => onOpenCompany && onOpenCompany(company)}
+                  onMouseEnter={e => e.currentTarget.style.background="#EBEBED"}
+                  onMouseLeave={e => e.currentTarget.style.background="#F7F7F8"}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                    <div style={{ width:36, height:36, borderRadius:8, background:"#1A1A1A", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:800, fontSize:15, flexShrink:0 }}>
+                      {company.name?.charAt(0) || "?"}
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:14, fontWeight:700, color:"#5B5FC7" }}>{company.name} ↗</div>
+                      <div style={{ fontSize:11, color:"#6B6F76" }}>
+                        {[company.industry, company.hq_city, company.headcount ? `~${company.headcount} employees` : null].filter(Boolean).join(" · ") || "—"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display:"grid", gridTemplateColumns:"100px 1fr", gap:"8px 12px", fontSize:12, marginBottom:20 }}>
+                  {[
+                    ["Domain", company.domain],
+                    ["Industry", company.industry || "—"],
+                    ["HQ", company.hq_city || "—"],
+                    ["Founded", company.founded_year || "—"],
+                    ["Headcount", company.headcount || "—"],
+                    ["Funding", [company.funding_stage, company.funding_amount].filter(x => x && x !== "unknown").join(" — ") || "—"],
+                    ["Status", company.status || "—"],
+                    ["Fit", company.arteq_fit],
+                    ["Pipeline", company.pipeline_stage],
+                  ].map(([label, value]) => {
+                    let rendered = value || "—";
+                    if (label === "Domain" && value) rendered = <a href={`https://${value}`} target="_blank" rel="noopener" style={{ fontSize:12, color:"#5B5FC7", textDecoration:"none" }}>{value} ↗</a>;
+                    else if (label === "Fit" && value && fitColors[value]) rendered = <span style={{ padding:"2px 6px", borderRadius:3, fontSize:11, fontWeight:500, background:fitColors[value].bg, color:fitColors[value].color }}>{value}</span>;
+                    else if (label === "Pipeline" && value) rendered = <span style={{ padding:"2px 6px", borderRadius:3, fontSize:11, fontWeight:600, background:"#F2F3F5", color:"#6B6F76" }}>{value.replace(/_/g," ")}</span>;
+                    return (
+                      <div key={label} style={{ display:"contents" }}>
+                        <div style={{ color:"#A0A3A9", fontSize:12 }}>{label}</div>
+                        <div style={{ color:"#1A1A1A" }}>{rendered}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {company.description && (
+                  <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, marginBottom:20, padding:"12px 16px", background:"#F7F7F8", borderRadius:8 }}>
+                    {company.description}
+                  </div>
+                )}
+
+                {/* Other contacts at this company */}
+                {contacts.length > 0 && (
+                  <div style={{ marginTop:8, paddingTop:16, borderTop:"1px solid #EBEBED" }}>
+                    <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:10 }}>Contacts ({contacts.length})</div>
+                    <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                      {contacts.filter(c => c.id !== person?.id && c.name !== person?.name).map((c, i) => (
+                        <div key={c.id || i} onClick={() => onOpenPerson && onOpenPerson(c)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", background:"#F7F7F8", borderRadius:8, cursor:"pointer" }}
+                          onMouseEnter={e => e.currentTarget.style.background="#EBEBED"}
+                          onMouseLeave={e => e.currentTarget.style.background="#F7F7F8"}>
+                          <div style={{ width:28, height:28, borderRadius:6, background: c.is_decision_maker ? "#1A1A1A" : "#EBEBED", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, color: c.is_decision_maker ? "#fff" : "#6B6F76", flexShrink:0 }}>
+                            {c.name?.charAt(0) || "?"}
+                          </div>
+                          <div>
+                            <div style={{ fontSize:12, fontWeight:600, color:"#1A1A1A" }}>{c.name}</div>
+                            <div style={{ fontSize:11, color:"#6B6F76" }}>{c.role_at_company || c.title || ""}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Roles Tab (person view) ── */}
+            {detailTab === "roles" && (
+              <div>
+                {companyRoles.length === 0 ? (
+                  <div style={{ padding:40, textAlign:"center", color:"#A0A3A9" }}>
+                    <div style={{ fontSize:22, marginBottom:6 }}>⊙</div>
+                    <div style={{ fontSize:13, fontWeight:500 }}>No open roles at {company?.name}</div>
+                  </div>
+                ) : (
+                  <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                    {companyRoles.map(r => {
+                      const isHMForRole = person?._isHiringManager && person?._roleId === r.id;
+                      return (
+                        <div key={r.id} onClick={() => onOpenRole && onOpenRole(r)} style={{
+                          border: isHMForRole ? "2px solid #5B5FC7" : "1px solid #EBEBED",
+                          borderRadius:10, padding:"14px 16px", cursor:"pointer",
+                          background: isHMForRole ? "#F5F3FF" : "#FAFAFA",
+                        }}
+                          onMouseEnter={e => { if (!isHMForRole) e.currentTarget.style.background="#F0F0F2"; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = isHMForRole ? "#F5F3FF" : "#FAFAFA"; }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                            <TierPill tier={r.tier} />
+                            <span style={{ fontWeight:600, fontSize:13, color:"#1A1A1A", flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cleanTitle(r.title)}</span>
+                            <Score v={r.final_score ?? r.rule_score} />
+                          </div>
+                          {isHMForRole && (
+                            <div style={{ marginBottom:6 }}>
+                              <span style={{ fontSize:10, fontWeight:600, padding:"2px 6px", borderRadius:3, background:"#EDE9FE", color:"#6D28D9" }}>Hiring Manager</span>
+                            </div>
+                          )}
+                          <div style={{ fontSize:11, color:"#6B6F76", display:"flex", gap:12, alignItems:"center" }}>
+                            {r.location && <span>{cleanLocation(r.location)}</span>}
+                            <EngPill type={r.engagement_type} />
+                            {r.posted_at && <span style={{ fontSize:10, color:"#A0A3A9" }}>{new Date(r.posted_at).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
           </div>
         </div>
@@ -1054,27 +1397,6 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                 })}
               </div>
 
-              {role.requirements_summary && (
-                <div style={{ marginTop:18 }}>
-                  <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:6 }}>Requirements</div>
-                  <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, background:"#F7F7F8", padding:"10px 12px", borderRadius:6, whiteSpace:"pre-wrap" }}>{role.requirements_summary}</div>
-                </div>
-              )}
-
-              {role.engagement_reasoning && (
-                <div style={{ marginTop:14 }}>
-                  <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:6 }}>Reasoning</div>
-                  <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, background:"#F7F7F8", padding:"10px 12px", borderRadius:6, whiteSpace:"pre-wrap" }}>{role.engagement_reasoning}</div>
-                </div>
-              )}
-
-              {role.outreach_angle && (
-                <div style={{ marginTop:14 }}>
-                  <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:6 }}>Outreach Angle</div>
-                  <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, background:"#F7F7F8", padding:"10px 12px", borderRadius:6, whiteSpace:"pre-wrap" }}>{role.outreach_angle}</div>
-                </div>
-              )}
-
               {role.signals && role.signals.length > 0 && (
                 <div style={{ marginTop:14 }}>
                   <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:6 }}>Signals</div>
@@ -1092,51 +1414,6 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                   textDecoration:"none",
                 }}>View job posting ↗</a>
               )}
-
-              {/* Sourcing Brief */}
-              {(() => {
-                const brief = typeof role.sourcing_brief === "string" ? (() => { try { return JSON.parse(role.sourcing_brief); } catch { return null; } })() : role.sourcing_brief;
-                if (!brief) return null;
-                return (
-                  <div style={{ marginTop:28, paddingTop:20, borderTop:"1px solid #EBEBED" }}>
-                    <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:12 }}>Sourcing Brief</div>
-
-                    {brief.must_have && brief.must_have.length > 0 && (
-                      <div style={{ marginBottom:14 }}>
-                        <div style={{ fontSize:11, fontWeight:600, color:"#065F46", marginBottom:6 }}>Must-Have</div>
-                        <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
-                          {brief.must_have.map((item, i) => (
-                            <div key={i} style={{ fontSize:11, color:"#1A1A1A", padding:"4px 8px", background:"#D1FAE5", borderRadius:4 }}>{item}</div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {brief.nice_to_have && brief.nice_to_have.length > 0 && (
-                      <div style={{ marginBottom:14 }}>
-                        <div style={{ fontSize:11, fontWeight:600, color:"#AD5700", marginBottom:6 }}>Nice-to-Have</div>
-                        <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
-                          {brief.nice_to_have.map((item, i) => (
-                            <div key={i} style={{ fontSize:11, color:"#1A1A1A", padding:"4px 8px", background:"#FFF0E1", borderRadius:4 }}>{item}</div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {brief.ideal_candidate_profile && (
-                      <div style={{ marginBottom:14 }}>
-                        <div style={{ fontSize:11, fontWeight:600, color:"#6D28D9", marginBottom:6 }}>Ideal Profile</div>
-                        <div style={{ fontSize:11, color:"#6B6F76", background:"#F7F7F8", padding:"8px 10px", borderRadius:6, lineHeight:1.5 }}>
-                          {brief.ideal_candidate_profile.background && <div><strong>Background:</strong> {brief.ideal_candidate_profile.background}</div>}
-                          {brief.ideal_candidate_profile.years_experience && <div><strong>Experience:</strong> {brief.ideal_candidate_profile.years_experience}</div>}
-                          {brief.ideal_candidate_profile.titles_to_search && <div><strong>Target titles:</strong> {brief.ideal_candidate_profile.titles_to_search.join(", ")}</div>}
-                        </div>
-                      </div>
-                    )}
-
-                  </div>
-                );
-              })()}
 
               {/* Candidate Matches */}
               <div style={{ marginTop:28, paddingTop:20, borderTop:"1px solid #EBEBED" }}>
@@ -1289,10 +1566,6 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                 ))}
               </div>
 
-              {company.description && (
-                <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, marginBottom:18 }}>{company.description}</div>
-              )}
-
               {/* Business */}
               <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:8 }}>Business</div>
               <div style={{ display:"grid", gridTemplateColumns:"90px 1fr", gap:"6px 12px", fontSize:12, marginBottom:18 }}>
@@ -1381,44 +1654,40 @@ export default function ALineCRM() {
   const [tab, setTab] = useState("roles");
   const [tierFilter, setTierFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState({ key:"final_score", dir:"desc" });
-  const [selected, setSelected] = useState(null);
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [selectedCompanyIndex, setSelectedCompanyIndex] = useState(-1);
   const [selectedRole, setSelectedRole] = useState(null);
   const [selectedRoleIndex, setSelectedRoleIndex] = useState(-1);
   const [selectedPerson, setSelectedPerson] = useState(null);
   const [selectedPersonIndex, setSelectedPersonIndex] = useState(-1);
-  const [agentLogs, setAgentLogs] = useState([]);
   const [allPeopleList, setAllPeopleList] = useState([]);
-  const [peopleSourceFilter, setPeopleSourceFilter] = useState("all");
-  const [peopleRoleTypeFilter, setPeopleRoleTypeFilter] = useState("all");
+  const [allCandidatesList, setAllCandidatesList] = useState([]);
+  const [talentTierFilter, setTalentTierFilter] = useState("all");
   const [agencies, setAgencies] = useState([]);
   const [agencyFilter, setAgencyFilter] = useState("all");
   const [selectedAgency, setSelectedAgency] = useState(null);
   const [agencyContacts, setAgencyContacts] = useState([]);
-  const [allMatches, setAllMatches] = useState([]);
+  const [agencyDetailTab, setAgencyDetailTab] = useState("summary");
+  const [showAgencyContactForm, setShowAgencyContactForm] = useState(false);
+  const [newAgencyContact, setNewAgencyContact] = useState({ name:"", title:"", email:"", linkedin_url:"", is_primary:false });
+  const [savingAgencyContact, setSavingAgencyContact] = useState(false);
   const [allCandidates, setAllCandidates] = useState({});
-  const [matchStatusFilter, setMatchStatusFilter] = useState("all");
   const cMap = useRef({});
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [c, r, cc, logs, matches, candidates, ag] = await Promise.all([
+      const [c, r, cc, candidates, ag] = await Promise.all([
         supaFetch("company","select=*&limit=1000"),
         supaFetch("role","select=*&limit=1000"),
         supaFetch("contact","select=*&limit=2000").catch(() => []),
-        supaFetch("agent_log","select=*&order=created_at.desc&limit=200").catch(() => []),
-        supaFetch("role_candidate_match","select=*&order=created_at.desc&limit=500").catch(() => []),
         supaFetch("candidate","select=*&limit=1000").catch(() => []),
         supaFetch("agency","select=*&order=quality_score.desc.nullslast,created_at.desc&limit=500").catch(() => []),
       ]);
       setAgencies(ag || []);
-      setAgentLogs(logs || []);
-      setAllMatches(matches || []);
+      setAllCandidatesList(candidates || []);
       const candMap = {};
       (candidates || []).forEach(cd => { candMap[cd.id] = cd; });
       setAllCandidates(candMap);
@@ -1440,28 +1709,51 @@ export default function ALineCRM() {
         }
         pList.push(enriched);
       });
-      // Also include hiring managers from roles in the People list
+      // Merge hiring manager flags from roles into existing contacts (dedup)
       (r || []).forEach(role => {
         if (!role.hiring_manager_name) return;
         const co = m[role.company_id];
-        pList.push({
-          id: `hm_${role.id}`,
-          name: role.hiring_manager_name,
-          title: role.hiring_manager_title,
-          role_at_company: role.hiring_manager_title,
-          linkedin_url: role.hiring_manager_linkedin,
-          is_decision_maker: true,
-          is_primary: true,
-          source: "role_enricher",
-          company_id: role.company_id,
-          company_name: co?.name,
-          _isHiringManager: true,
-          _roleId: role.id,
-        });
+        // Check if this HM already exists as a real contact (match by name+company, name without company, or LinkedIn URL)
+        const hmNameLower = role.hiring_manager_name?.toLowerCase();
+        const hmLinkedin = role.hiring_manager_linkedin?.replace(/\/+$/, "").toLowerCase();
+        const existingIdx = pList.findIndex(p =>
+          !p._isHiringManager && (
+            (p.company_id === role.company_id && p.name?.toLowerCase() === hmNameLower) ||
+            (!p.company_id && p.name?.toLowerCase() === hmNameLower) ||
+            (hmLinkedin && p.linkedin_url && p.linkedin_url.replace(/\/+$/, "").toLowerCase() === hmLinkedin)
+          )
+        );
+        if (existingIdx >= 0) {
+          // Merge HM flags into existing real contact
+          pList[existingIdx] = {
+            ...pList[existingIdx],
+            _isHiringManager: true,
+            _roleId: role.id,
+            is_decision_maker: true,
+            linkedin_url: pList[existingIdx].linkedin_url || role.hiring_manager_linkedin,
+          };
+        } else {
+          pList.push({
+            id: `hm_${role.id}`,
+            name: role.hiring_manager_name,
+            title: role.hiring_manager_title,
+            role_at_company: role.hiring_manager_title,
+            linkedin_url: role.hiring_manager_linkedin,
+            is_decision_maker: true,
+            is_primary: true,
+            source: "role_enricher",
+            company_id: role.company_id,
+            company_name: co?.name,
+            _isHiringManager: true,
+            _roleId: role.id,
+          });
+        }
         // Also add to allMap so they appear in company contacts tab
         if (role.company_id) {
           if (!allMap[role.company_id]) allMap[role.company_id] = [];
-          const alreadyExists = allMap[role.company_id].some(c => c.name === role.hiring_manager_name);
+          const alreadyExists = allMap[role.company_id].some(c =>
+            c.name?.toLowerCase() === role.hiring_manager_name?.toLowerCase()
+          );
           if (!alreadyExists) {
             allMap[role.company_id].push({
               id: `hm_${role.id}`,
@@ -1509,71 +1801,26 @@ export default function ALineCRM() {
 
   const doSort = k => setSort(p => p.key===k ? {key:k,dir:p.dir==="asc"?"desc":"asc"} : {key:k,dir:"desc"});
 
-  // Company filtering
-  const STATUS = {
-    lead:     { label:"Lead",     bg:"#EDE9FE", color:"#6D28D9" },
-    prospect: { label:"Prospect", bg:"#DBEAFE", color:"#1D4ED8" },
-    active:   { label:"Active",   bg:"#D1FAE5", color:"#065F46" },
-    client:   { label:"Client",   bg:"#D1FAE5", color:"#047857" },
-    churned:  { label:"Churned",  bg:"#FDECEC", color:"#C13030" },
+  const filteredCompanies = companies;
+  const filteredPeople = allPeopleList;
+
+  // Talent pool filtering
+  const CAND_TIER = {
+    available: { label:"Available", bg:"#D1FAE5", color:"#065F46" },
+    passive:   { label:"Passive",   bg:"#FFF0E1", color:"#AD5700" },
+    research:  { label:"Research",  bg:"#EDE9FE", color:"#6D28D9" },
   };
-  const statusCounts = {};
-  companies.forEach(c => { statusCounts[c.status] = (statusCounts[c.status]||0)+1; });
+  const candidateTierCounts = {};
+  allCandidatesList.forEach(c => { candidateTierCounts[c.tier] = (candidateTierCounts[c.tier]||0)+1; });
 
-  const filteredCompanies = companies.filter(c => {
-    if (statusFilter !== "all" && c.status !== statusFilter) return false;
-    if (search && !`${c.name} ${c.industry||""} ${c.domain||""}`.toLowerCase().includes(search.toLowerCase())) return false;
+  const filteredCandidates = allCandidatesList.filter(c => {
+    if (talentTierFilter !== "all" && c.tier !== talentTierFilter) return false;
+    if (search && !`${c.full_name||""} ${c.current_title||""} ${c.location||""} ${c.source||""}`.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
-  }).sort((a,b) => {
-    let av = a[sort.key], bv = b[sort.key];
-    if (av==null) av = sort.dir==="desc" ? -Infinity : Infinity;
-    if (bv==null) bv = sort.dir==="desc" ? -Infinity : Infinity;
-    if (typeof av === "string") { av = av.toLowerCase(); bv = (bv||"").toLowerCase(); }
-    return av < bv ? (sort.dir==="asc"?-1:1) : av > bv ? (sort.dir==="asc"?1:-1) : 0;
-  });
-
-  // People filtering
-  const peopleSourceCounts = {};
-  allPeopleList.forEach(p => { peopleSourceCounts[p.source] = (peopleSourceCounts[p.source]||0)+1; });
-  const peopleRoleTypes = {};
-  allPeopleList.forEach(p => {
-    const rt = p.role_type || (p.is_decision_maker ? "decision_maker" : null);
-    if (rt) peopleRoleTypes[rt] = (peopleRoleTypes[rt]||0)+1;
-  });
-
-  const filteredPeople = allPeopleList.filter(p => {
-    if (peopleSourceFilter !== "all" && p.source !== peopleSourceFilter) return false;
-    if (peopleRoleTypeFilter !== "all") {
-      const rt = p.role_type || (p.is_decision_maker ? "decision_maker" : null);
-      if (rt !== peopleRoleTypeFilter) return false;
-    }
-    if (search) {
-      const co = cMap.current[p.company_id];
-      if (!`${p.name||""} ${p.title||""} ${p.role_at_company||""} ${co?.name||""} ${p.email||""}`.toLowerCase().includes(search.toLowerCase())) return false;
-    }
-    return true;
-  }).sort((a,b) => {
-    let av = a[sort.key], bv = b[sort.key];
-    if (sort.key === "company_name") {
-      av = cMap.current[a.company_id]?.name || "";
-      bv = cMap.current[b.company_id]?.name || "";
-    }
-    if (av==null) av = sort.dir==="desc" ? -Infinity : Infinity;
-    if (bv==null) bv = sort.dir==="desc" ? -Infinity : Infinity;
-    if (typeof av === "string") { av = av.toLowerCase(); bv = (bv||"").toLowerCase(); }
-    return av < bv ? (sort.dir==="asc"?-1:1) : av > bv ? (sort.dir==="asc"?1:-1) : 0;
   });
 
   const navigateCompany = useCallback((direction) => {
-    if (selectedPerson) {
-      const newIndex = selectedPersonIndex + direction;
-      if (newIndex >= 0 && newIndex < filteredPeople.length) {
-        const p = filteredPeople[newIndex];
-        setSelectedPersonIndex(newIndex);
-        setSelectedPerson(p);
-        setSelectedCompany(cMap.current[p.company_id] || selectedCompany);
-      }
-    } else if (selectedRole) {
+    if (selectedRole) {
       const newIndex = selectedRoleIndex + direction;
       if (newIndex >= 0 && newIndex < filtered.length) {
         const r = filtered[newIndex];
@@ -1581,14 +1828,8 @@ export default function ALineCRM() {
         setSelectedRole(r);
         setSelectedCompany(cMap.current[r.company_id] || selectedCompany);
       }
-    } else {
-      const newIndex = selectedCompanyIndex + direction;
-      if (newIndex >= 0 && newIndex < filteredCompanies.length) {
-        setSelectedCompanyIndex(newIndex);
-        setSelectedCompany(filteredCompanies[newIndex]);
-      }
     }
-  }, [selectedCompanyIndex, filteredCompanies, selectedRole, selectedRoleIndex, filtered, selectedCompany, selectedPerson, selectedPersonIndex, filteredPeople]);
+  }, [selectedRole, selectedRoleIndex, filtered, selectedCompany]);
 
   const closeDetail = useCallback(() => {
     setSelectedCompany(null); setSelectedCompanyIndex(-1);
@@ -1597,17 +1838,19 @@ export default function ALineCRM() {
   }, []);
 
   useEffect(() => {
-    if (!selectedCompany) return;
+    if (!selectedCompany && !selectedAgency) return;
     const handler = (e) => {
       const tag = e.target.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if (e.key === "Escape") closeDetail();
-      if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); navigateCompany(-1); }
-      if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); navigateCompany(1); }
+      if (e.key === "Escape") { closeDetail(); setSelectedAgency(null); setAgencyContacts([]); }
+      if (selectedCompany) {
+        if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); navigateCompany(-1); }
+        if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); navigateCompany(1); }
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedCompany, navigateCompany, closeDetail]);
+  }, [selectedCompany, selectedAgency, navigateCompany, closeDetail]);
 
   return (
     <div style={{ display:"flex", height:"100vh", overflow:"hidden", fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,sans-serif", background:"#fff", color:"#1A1A1A", fontSize:13 }}>
@@ -1620,47 +1863,22 @@ export default function ALineCRM() {
           <span style={{ fontWeight:700, fontSize:15, letterSpacing:-0.5 }}>A-Line</span>
         </div>
 
-        <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, padding:"0 10px", marginBottom:8 }}>Pipeline</div>
+        <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, padding:"0 10px", marginBottom:8 }}>Demand Side</div>
 
-        {[
-          { icon:"○", label:"Companies", count:companies.length, key:"companies" },
-          { icon:"◉", label:"People", count:allPeopleList.length, key:"people" },
-          { icon:"⊙", label:"Roles", count:roles.length, key:"roles" },
-        ].map(n => (
-          <div key={n.label} onClick={() => { setTab(n.key); setSearch(""); setTierFilter("all"); setSourceFilter("all"); setStatusFilter("all"); setPeopleSourceFilter("all"); setPeopleRoleTypeFilter("all"); setSelectedCompany(null); setSelectedCompanyIndex(-1); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); }} style={{
-            display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:6,
-            background:tab===n.key?"#EBEBED":"transparent", color:tab===n.key?"#1A1A1A":"#6B6F76",
-            fontSize:13, fontWeight:tab===n.key?600:400, cursor:"pointer", marginBottom:1,
-          }}>
-            <span style={{ fontSize:14, width:18, textAlign:"center", opacity:0.6 }}>{n.icon}</span>
-            <span style={{ flex:1 }}>{n.label}</span>
-            <span style={{ fontSize:11, color:"#A0A3A9" }}>{n.count}</span>
-          </div>
-        ))}
-
-        <div style={{ height:20 }} />
-        <div key="Matches" onClick={() => { setTab("matches"); setSearch(""); setTierFilter("all"); setSourceFilter("all"); setStatusFilter("all"); setPeopleSourceFilter("all"); setPeopleRoleTypeFilter("all"); setMatchStatusFilter("all"); setSelectedCompany(null); setSelectedCompanyIndex(-1); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); }} style={{
+        <div onClick={() => { setTab("roles"); setSearch(""); setTierFilter("all"); setSourceFilter("all"); setSelectedCompany(null); setSelectedCompanyIndex(-1); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); setSelectedAgency(null); setAgencyContacts([]); }} style={{
           display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:6,
-          background:tab==="matches"?"#EBEBED":"transparent", color:tab==="matches"?"#1A1A1A":"#6B6F76",
-          fontSize:13, fontWeight:tab==="matches"?600:400, cursor:"pointer", marginBottom:1,
+          background:tab==="roles"?"#EBEBED":"transparent", color:tab==="roles"?"#1A1A1A":"#6B6F76",
+          fontSize:13, fontWeight:tab==="roles"?600:400, cursor:"pointer", marginBottom:1,
         }}>
-          <span style={{ fontSize:14, width:18, textAlign:"center", opacity:0.6 }}>◇</span>
-          <span style={{ flex:1 }}>Matches</span>
-          {allMatches.length > 0 && <span style={{ fontSize:11, color:"#A0A3A9" }}>{allMatches.length}</span>}
-        </div>
-        <div key="Agent Log" onClick={() => { setTab("agent"); setSearch(""); setTierFilter("all"); setSourceFilter("all"); setStatusFilter("all"); setPeopleSourceFilter("all"); setPeopleRoleTypeFilter("all"); setSelectedCompany(null); setSelectedCompanyIndex(-1); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); }} style={{
-          display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:6,
-          background:tab==="agent"?"#EBEBED":"transparent", color:tab==="agent"?"#1A1A1A":"#6B6F76",
-          fontSize:13, fontWeight:tab==="agent"?600:400, cursor:"pointer", marginBottom:1,
-        }}>
-          <span style={{ fontSize:14, width:18, textAlign:"center", opacity:0.6 }}>◎</span>
-          <span style={{ flex:1 }}>Agent Log</span>
-          <span style={{ fontSize:11, color:"#A0A3A9" }}>{agentLogs.length || null}</span>
+          <span style={{ fontSize:14, width:18, textAlign:"center", opacity:0.6 }}>⊙</span>
+          <span style={{ flex:1 }}>Roles</span>
+          <span style={{ fontSize:11, color:"#A0A3A9" }}>{roles.length}</span>
         </div>
 
         <div style={{ height:12 }} />
         <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, padding:"0 10px", marginBottom:8 }}>Supply Side</div>
-        <div key="Agencies" onClick={() => { setTab("agencies"); setSearch(""); setAgencyFilter("all"); setSelectedCompany(null); setSelectedCompanyIndex(-1); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); }} style={{
+
+        <div onClick={() => { setTab("agencies"); setSearch(""); setAgencyFilter("all"); setSelectedCompany(null); setSelectedCompanyIndex(-1); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); setSelectedAgency(null); setAgencyContacts([]); }} style={{
           display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:6,
           background:tab==="agencies"?"#EBEBED":"transparent", color:tab==="agencies"?"#1A1A1A":"#6B6F76",
           fontSize:13, fontWeight:tab==="agencies"?600:400, cursor:"pointer", marginBottom:1,
@@ -1668,6 +1886,16 @@ export default function ALineCRM() {
           <span style={{ fontSize:14, width:18, textAlign:"center", opacity:0.6 }}>◆</span>
           <span style={{ flex:1 }}>Agencies</span>
           <span style={{ fontSize:11, color:"#A0A3A9" }}>{agencies.length || null}</span>
+        </div>
+
+        <div onClick={() => { setTab("talent"); setSearch(""); setTalentTierFilter("all"); setSelectedCompany(null); setSelectedCompanyIndex(-1); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); setSelectedAgency(null); setAgencyContacts([]); }} style={{
+          display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:6,
+          background:tab==="talent"?"#EBEBED":"transparent", color:tab==="talent"?"#1A1A1A":"#6B6F76",
+          fontSize:13, fontWeight:tab==="talent"?600:400, cursor:"pointer", marginBottom:1,
+        }}>
+          <span style={{ fontSize:14, width:18, textAlign:"center", opacity:0.6 }}>⊘</span>
+          <span style={{ flex:1 }}>Talent Pool</span>
+          <span style={{ fontSize:11, color:"#A0A3A9" }}>{allCandidatesList.length || null}</span>
         </div>
 
         <div style={{ flex:1 }} />
@@ -1683,14 +1911,254 @@ export default function ALineCRM() {
       <div style={{ flex:1, display:"flex", flexDirection:"column", minWidth:0 }}>
 
         {selectedCompany ? (
-          <CompanyDetailView key={selectedPerson ? `person-${selectedPerson.id}` : selectedRole ? `role-${selectedRole.id}` : selectedCompany.id} company={selectedCompany} contacts={allContacts[selectedCompany.id] || []} onClose={closeDetail} onContactsChanged={load} currentIndex={selectedPerson ? selectedPersonIndex : selectedRole ? selectedRoleIndex : selectedCompanyIndex} totalCount={selectedPerson ? filteredPeople.length : selectedRole ? filtered.length : filteredCompanies.length} onNavigate={navigateCompany} tabLabel={selectedPerson ? "People" : selectedRole ? "Roles" : tab === "companies" ? "Companies" : "People"} role={selectedRole} person={selectedPerson} companyRoles={roles.filter(r => r.company_id === selectedCompany.id)} onOpenRole={(r) => { const co = cMap.current[r.company_id]; if (co) { setSelectedCompany(co); setSelectedCompanyIndex(filteredCompanies.indexOf(co)); } setSelectedRole(r); setSelectedRoleIndex(filtered.indexOf(r)); setSelectedPerson(null); setSelectedPersonIndex(-1); }} onOpenPerson={(p) => { const co = cMap.current[p.company_id]; if (co) { setSelectedCompany(co); setSelectedCompanyIndex(filteredCompanies.indexOf(co)); } setSelectedPerson(p); setSelectedPersonIndex(filteredPeople.indexOf(p)); setSelectedRole(null); setSelectedRoleIndex(-1); }} onOpenCompany={(co) => { setSelectedCompany(co); setSelectedCompanyIndex(filteredCompanies.indexOf(co)); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); }} />
+          <CompanyDetailView key={selectedPerson ? `person-${selectedPerson.id}` : selectedRole ? `role-${selectedRole.id}` : selectedCompany.id} company={selectedCompany} contacts={allContacts[selectedCompany.id] || []} onClose={closeDetail} onContactsChanged={load} currentIndex={selectedRole ? selectedRoleIndex : selectedCompanyIndex} totalCount={selectedRole ? filtered.length : 0} onNavigate={navigateCompany} tabLabel="Roles" role={selectedRole} person={selectedPerson} companyRoles={roles.filter(r => r.company_id === selectedCompany.id)} onOpenRole={(r) => { const co = cMap.current[r.company_id]; if (co) { setSelectedCompany(co); setSelectedCompanyIndex(companies.indexOf(co)); } setSelectedRole(r); setSelectedRoleIndex(filtered.indexOf(r)); setSelectedPerson(null); setSelectedPersonIndex(-1); }} onOpenPerson={(p) => { const co = cMap.current[p.company_id]; if (co) { setSelectedCompany(co); setSelectedCompanyIndex(companies.indexOf(co)); } setSelectedPerson(p); setSelectedPersonIndex(allPeopleList.indexOf(p)); setSelectedRole(null); setSelectedRoleIndex(-1); }} onOpenCompany={(co) => { setSelectedCompany(co); setSelectedCompanyIndex(companies.indexOf(co)); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); }} />
+        ) : selectedAgency ? (
+          /* ── Full-screen Agency Detail ── */
+          <div style={{ flex:1, display:"flex", flexDirection:"column", minWidth:0, minHeight:0, fontFamily:"'Inter',-apple-system,sans-serif" }}>
+            {/* Top Bar */}
+            <div style={{ padding:"10px 20px", borderBottom:"1px solid #EBEBED", display:"flex", alignItems:"center", gap:12 }}>
+              <button onClick={() => { setSelectedAgency(null); setAgencyContacts([]); }} style={{
+                width:28, height:28, borderRadius:6, border:"1px solid #EBEBED",
+                background:"#fff", cursor:"pointer", fontSize:15, color:"#6B6F76",
+                display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
+              }}>×</button>
+              <div style={{ width:1, height:20, background:"#EBEBED" }} />
+              <div style={{ fontSize:15, fontWeight:700, color:"#1A1A1A" }}>{selectedAgency.name}</div>
+              {selectedAgency.domain && (
+                <a href={`https://${selectedAgency.domain}`} target="_blank" rel="noopener" style={{ fontSize:12, color:"#5B5FC7", textDecoration:"none" }}>{selectedAgency.domain} ↗</a>
+              )}
+            </div>
+            {/* Two-Column Body */}
+            <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
+              {/* LEFT — Tabbed Content */}
+              <div style={{ flex:3, display:"flex", flexDirection:"column", borderRight:"1px solid #EBEBED", minHeight:0 }}>
+
+                {/* Sub-nav tabs */}
+                <div style={{ display:"flex", gap:0, borderBottom:"1px solid #EBEBED", padding:"0 24px", flexShrink:0 }}>
+                  {[
+                    { key:"summary", label:"Summary" },
+                    { key:"dossier", label:"Dossier" },
+                    { key:"contacts", label:"Contacts", count: agencyContacts.length },
+                    { key:"candidates", label:"Candidates", count: 0 },
+                  ].map(t => {
+                    const active = agencyDetailTab === t.key;
+                    return (
+                      <button key={t.key} onClick={() => setAgencyDetailTab(t.key)} style={{
+                        padding:"10px 16px", fontSize:12, fontWeight:active ? 600 : 400, cursor:"pointer",
+                        border:"none", borderBottom: active ? "2px solid #1A1A1A" : "2px solid transparent",
+                        background:"transparent", color: active ? "#1A1A1A" : "#A0A3A9",
+                        fontFamily:"inherit", marginBottom:-1,
+                      }}>{t.label}{t.count != null ? ` (${t.count})` : ""}</button>
+                    );
+                  })}
+                </div>
+
+                {/* Tab content */}
+                <div style={{ flex:1, overflow:"auto", padding:"20px 24px" }}>
+
+                  {/* ── Agency Summary Tab ── */}
+                  {agencyDetailTab === "summary" && (
+                    <div>
+                      {/* Description */}
+                      {selectedAgency.description && (
+                        <div style={{ fontSize:13, color:"#1A1A1A", lineHeight:1.7, marginBottom:20, padding:"14px 18px", background:"#EDE9FE", borderRadius:10, border:"1px solid #DDD6FE", fontWeight:500 }}>
+                          {selectedAgency.description}
+                        </div>
+                      )}
+
+                      {/* Quality Assessment */}
+                      {selectedAgency.quality_reason && (
+                        <div style={{ marginBottom:20 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                            <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5 }}>Quality Assessment</div>
+                            {selectedAgency.quality_score != null && (
+                              <span style={{ padding:"2px 8px", borderRadius:4, fontSize:11, fontWeight:700, background:"#F2F3F5", color:"#1A1A1A" }}>{selectedAgency.quality_score}/10</span>
+                            )}
+                          </div>
+                          <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, padding:"10px 14px", background:"#F7F7F8", borderRadius:6 }}>
+                            {selectedAgency.quality_reason}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Competitor Assessment */}
+                      {selectedAgency.is_direct_competitor_reason && (
+                        <div style={{ marginBottom:20 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                            <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5 }}>Competitor Assessment</div>
+                            {selectedAgency.is_direct_competitor && (
+                              <span style={{ padding:"2px 8px", borderRadius:4, fontSize:11, fontWeight:700, background:"#FDECEC", color:"#C13030" }}>Competitor</span>
+                            )}
+                          </div>
+                          <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, padding:"10px 14px", background:"#FEF2F2", borderRadius:6, border:"1px solid #FECACA" }}>
+                            {selectedAgency.is_direct_competitor_reason}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── Agency Dossier Tab ── */}
+                  {agencyDetailTab === "dossier" && (
+                    <div style={{ padding:40, textAlign:"center", color:"#A0A3A9" }}>
+                      <div style={{ fontSize:22, marginBottom:6 }}>📋</div>
+                      <div style={{ fontSize:13, fontWeight:500 }}>No dossier entries yet</div>
+                      <div style={{ fontSize:12, marginTop:4 }}>Agency dossier entries will appear here.</div>
+                    </div>
+                  )}
+
+                  {/* ── Agency Contacts Tab ── */}
+                  {agencyDetailTab === "contacts" && (
+                    <div>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+                        <div style={{ fontSize:13, fontWeight:600, color:"#1A1A1A" }}>
+                          {agencyContacts.length} {agencyContacts.length === 1 ? "contact" : "contacts"}
+                        </div>
+                        <button onClick={() => setShowAgencyContactForm(!showAgencyContactForm)} style={{
+                          padding:"5px 14px", borderRadius:6, fontSize:12, fontWeight:600, cursor:"pointer",
+                          border:"1px solid #EBEBED", background: showAgencyContactForm ? "#1A1A1A" : "#fff",
+                          color: showAgencyContactForm ? "#fff" : "#6B6F76", fontFamily:"inherit",
+                        }}>{showAgencyContactForm ? "Cancel" : "+ Add Contact"}</button>
+                      </div>
+
+                      {showAgencyContactForm && (
+                        <div style={{ background:"#FAFAFA", borderRadius:8, padding:16, marginBottom:16, border:"1px solid #EBEBED" }}>
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                            <input value={newAgencyContact.name} onChange={e => setNewAgencyContact(p => ({...p, name: e.target.value}))} placeholder="Name *" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none", gridColumn:"1 / -1" }} />
+                            <input value={newAgencyContact.title} onChange={e => setNewAgencyContact(p => ({...p, title: e.target.value}))} placeholder="Title" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
+                            <input value={newAgencyContact.email} onChange={e => setNewAgencyContact(p => ({...p, email: e.target.value}))} placeholder="Email" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
+                            <input value={newAgencyContact.linkedin_url} onChange={e => setNewAgencyContact(p => ({...p, linkedin_url: e.target.value}))} placeholder="LinkedIn URL" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
+                            <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:"#6B6F76", cursor:"pointer" }}>
+                              <input type="checkbox" checked={newAgencyContact.is_primary} onChange={e => setNewAgencyContact(p => ({...p, is_primary: e.target.checked}))} />
+                              Primary contact (GF)
+                            </label>
+                          </div>
+                          <button onClick={async () => {
+                            if (!newAgencyContact.name.trim()) return;
+                            setSavingAgencyContact(true);
+                            try {
+                              await supaPost("agency_contact", {
+                                agency_id: selectedAgency.id,
+                                name: newAgencyContact.name.trim(),
+                                title: newAgencyContact.title.trim() || null,
+                                email: newAgencyContact.email.trim() || null,
+                                linkedin_url: newAgencyContact.linkedin_url.trim() || null,
+                                is_primary: newAgencyContact.is_primary,
+                              });
+                              setNewAgencyContact({ name:"", title:"", email:"", linkedin_url:"", is_primary:false });
+                              setShowAgencyContactForm(false);
+                              const contacts = await supaFetch("agency_contact", `agency_id=eq.${selectedAgency.id}&order=is_primary.desc`);
+                              setAgencyContacts(contacts || []);
+                            } catch (e) {
+                              alert("Could not save contact: " + e.message);
+                            }
+                            setSavingAgencyContact(false);
+                          }} disabled={savingAgencyContact || !newAgencyContact.name.trim()} style={{
+                            marginTop:10, padding:"7px 18px", borderRadius:6, border:"none", fontSize:12, fontWeight:600, cursor: newAgencyContact.name.trim() ? "pointer" : "default", fontFamily:"inherit",
+                            background: newAgencyContact.name.trim() ? "#1A1A1A" : "#EBEBED", color: newAgencyContact.name.trim() ? "#fff" : "#A0A3A9",
+                          }}>{savingAgencyContact ? "Saving..." : "Save Contact"}</button>
+                        </div>
+                      )}
+
+                      {agencyContacts.length === 0 ? (
+                        <div style={{ fontSize:12, color:"#A0A3A9", padding:16, textAlign:"center" }}>No contacts found yet</div>
+                      ) : (
+                        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                          {agencyContacts.map((c, i) => (
+                            <div key={c.id || i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", background:"#F7F7F8", borderRadius:10 }}>
+                              <div style={{ width:36, height:36, borderRadius:8, background:"#1A1A1A", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700, color:"#fff", flexShrink:0 }}>
+                                {c.name?.charAt(0) || "?"}
+                              </div>
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                                  <span style={{ fontSize:13, fontWeight:600, color:"#1A1A1A" }}>{c.name}</span>
+                                  {c.is_primary && <span style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:3, background:"#FEF3C7", color:"#92400E" }}>GF</span>}
+                                  {c.confidence && (
+                                    <span style={{ fontSize:9, fontWeight:600, padding:"1px 5px", borderRadius:3,
+                                      background: c.confidence==="high"?"#D1FAE5":c.confidence==="medium"?"#FEF3C7":"#F2F3F5",
+                                      color: c.confidence==="high"?"#065F46":c.confidence==="medium"?"#92400E":"#6B6F76",
+                                    }}>{c.confidence}</span>
+                                  )}
+                                </div>
+                                <div style={{ fontSize:11, color:"#6B6F76", marginTop:1 }}>{c.title || ""}</div>
+                                <div style={{ display:"flex", gap:8, marginTop:4, flexWrap:"wrap" }}>
+                                  {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noopener" style={{ fontSize:11, color:"#0A66C2", textDecoration:"none", fontWeight:600 }}>LinkedIn</a>}
+                                  {c.email && <a href={`mailto:${c.email}`} style={{ fontSize:11, color:"#5B5FC7", textDecoration:"none" }}>{c.email}</a>}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── Agency Candidates Tab ── */}
+                  {agencyDetailTab === "candidates" && (
+                    <div style={{ padding:40, textAlign:"center", color:"#A0A3A9" }}>
+                      <div style={{ fontSize:22, marginBottom:6 }}>⊙</div>
+                      <div style={{ fontSize:13, fontWeight:500 }}>Coming soon</div>
+                      <div style={{ fontSize:12, marginTop:4 }}>Agency candidate tracking will appear here.</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* RIGHT — Agency Details */}
+              <div style={{ flex:2, overflow:"auto", padding:"20px 24px" }}>
+                {/* Status badges */}
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:20 }}>
+                  {selectedAgency.is_direct_competitor && (
+                    <span style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:600, background:"#FDECEC", color:"#C13030" }}>Competitor</span>
+                  )}
+                  <span style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:500, background: selectedAgency.enrichment_status==="enriched"?"#D1FAE5":"#FEF3C7", color: selectedAgency.enrichment_status==="enriched"?"#065F46":"#92400E" }}>
+                    {selectedAgency.enrichment_status || "pending"}
+                  </span>
+                  {selectedAgency.quality_score != null && (
+                    <span style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:600, background:"#F2F3F5", color:"#1A1A1A" }}>Quality: {selectedAgency.quality_score}/10</span>
+                  )}
+                </div>
+
+                {/* Overview */}
+                <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:8 }}>Overview</div>
+                <div style={{ display:"grid", gridTemplateColumns:"100px 1fr", gap:"6px 12px", fontSize:12, marginBottom:18 }}>
+                  {[
+                    ["Location", [selectedAgency.hq_city, selectedAgency.hq_country].filter(Boolean).join(", ")],
+                    ["Headcount", selectedAgency.headcount],
+                    ["Founded", selectedAgency.founded_year],
+                    ["Geo Focus", selectedAgency.geographic_focus],
+                    ["Source", selectedAgency.source],
+                    ["Outreach", selectedAgency.outreach_status || "pending"],
+                    ["Added", selectedAgency.created_at ? new Date(selectedAgency.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : null],
+                  ].map(([label, value]) => (
+                    <div key={label} style={{ display:"contents" }}>
+                      <div style={{ color:"#A0A3A9", fontSize:12 }}>{label}</div>
+                      <div style={{ color:"#1A1A1A" }}>{value || "—"}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Specialization */}
+                {selectedAgency.specialization && selectedAgency.specialization.length > 0 && (
+                  <div style={{ marginBottom:20 }}>
+                    <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>Specialization</div>
+                    <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                      {selectedAgency.specialization.map((s, i) => (
+                        <span key={i} style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:500, background:"#EDE9FE", color:"#6D28D9" }}>{s}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         ) : (
         <>
         {/* Topbar */}
         <div style={{ padding:"12px 20px", borderBottom:"1px solid #EBEBED", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-            <span style={{ fontSize:15, fontWeight:600 }}>{tab === "roles" ? "Roles" : tab === "companies" ? "Companies" : tab === "people" ? "People" : tab === "matches" ? "Matches" : tab === "agencies" ? "Agencies" : "Agent Log"}</span>
-            <span style={{ fontSize:12, color:"#A0A3A9" }}>{tab === "roles" ? `${filtered.length} records` : tab === "companies" ? `${filteredCompanies.length} records` : tab === "people" ? `${filteredPeople.length} contacts` : tab === "matches" ? `${allMatches.length} matches` : tab === "agencies" ? `${agencies.length} agencies` : `${agentLogs.length} decisions`}</span>
+            <span style={{ fontSize:15, fontWeight:600 }}>{tab === "roles" ? "Roles" : tab === "agencies" ? "Agencies" : "Talent Pool"}</span>
+            <span style={{ fontSize:12, color:"#A0A3A9" }}>{tab === "roles" ? `${filtered.length} records` : tab === "agencies" ? `${agencies.length} agencies` : `${filteredCandidates.length} candidates`}</span>
           </div>
           <button onClick={load} style={{
             padding:"5px 12px", borderRadius:6, border:"1px solid #EBEBED",
@@ -1715,52 +2183,18 @@ export default function ALineCRM() {
               );
             })}
           </div>
-        ) : tab === "agent" || tab === "matches" ? (
-          tab === "matches" ? (
-            <div style={{ display:"flex", alignItems:"center", gap:5, padding:"8px 20px", borderBottom:"1px solid #EBEBED", flexWrap:"wrap" }}>
-              {["all","proposed","reviewed","accepted","rejected"].map(s => {
-                const cnt = s === "all" ? allMatches.length : allMatches.filter(m => m.status === s).length;
-                return (
-                  <button key={s} onClick={() => setMatchStatusFilter(s)} style={{
-                    padding:"4px 10px", borderRadius:4, fontSize:12, fontWeight:500, cursor:"pointer",
-                    border: matchStatusFilter===s ? "1.5px solid #1A1A1A" : "1px solid #EBEBED",
-                    background: matchStatusFilter===s ? "#1A1A1A" : "#fff",
-                    color: matchStatusFilter===s ? "#fff" : "#6B6F76",
-                  }}>
-                    {s === "all" ? `All ${cnt}` : `${s.charAt(0).toUpperCase()+s.slice(1)} ${cnt}`}
-                  </button>
-                );
-              })}
-              <div style={{ flex:1 }} />
-              <div style={{ position:"relative" }}>
-                <span style={{ position:"absolute", left:9, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"#A0A3A9" }}>⌕</span>
-                <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Filter…" style={{
-                  padding:"5px 10px 5px 26px", borderRadius:6, border:"1px solid #EBEBED",
-                  fontSize:12, fontFamily:"inherit", outline:"none", width:170, color:"#1A1A1A",
-                }} />
-              </div>
-            </div>
-          ) : null
-        ) : tab === "people" ? (
+        ) : tab === "talent" ? (
+          /* ── Talent Pool filter bar ── */
           <div style={{ display:"flex", alignItems:"center", gap:5, padding:"8px 20px", borderBottom:"1px solid #EBEBED", flexWrap:"wrap" }}>
-            {["all",...Object.keys(peopleSourceCounts).filter(Boolean)].map(s => (
-              <button key={s} onClick={() => setPeopleSourceFilter(s)} style={{
+            {["all",...Object.keys(candidateTierCounts)].map(t => (
+              <button key={t} onClick={() => setTalentTierFilter(t)} style={{
                 padding:"4px 10px", borderRadius:4, fontSize:12, fontWeight:500, cursor:"pointer",
-                border: peopleSourceFilter===s ? "1.5px solid #1A1A1A" : "1px solid #EBEBED",
-                background: peopleSourceFilter===s ? "#1A1A1A" : "#fff",
-                color: peopleSourceFilter===s ? "#fff" : "#6B6F76",
+                border: talentTierFilter===t ? "1.5px solid #1A1A1A" : "1px solid #EBEBED",
+                background: talentTierFilter===t ? "#1A1A1A" : "#fff",
+                color: talentTierFilter===t ? "#fff" : "#6B6F76", fontFamily:"inherit",
               }}>
-                {s==="all" ? `All ${allPeopleList.length}` : `${s} ${peopleSourceCounts[s]}`}
+                {t==="all" ? `All ${allCandidatesList.length}` : `${CAND_TIER[t]?.label||t} ${candidateTierCounts[t]}`}
               </button>
-            ))}
-            {Object.keys(peopleRoleTypes).length > 0 && <div style={{ width:1, height:18, background:"#EBEBED", margin:"0 4px" }} />}
-            {Object.entries(peopleRoleTypes).map(([rt, count]) => (
-              <button key={rt} onClick={() => setPeopleRoleTypeFilter(peopleRoleTypeFilter===rt?"all":rt)} style={{
-                padding:"4px 10px", borderRadius:4, fontSize:12, fontWeight:500, cursor:"pointer",
-                border: peopleRoleTypeFilter===rt ? "1.5px solid #5B5FC7" : "1px solid #EBEBED",
-                background: peopleRoleTypeFilter===rt ? "#5B5FC7" : "#fff",
-                color: peopleRoleTypeFilter===rt ? "#fff" : "#6B6F76",
-              }}>{rt.replace(/_/g," ")} {count}</button>
             ))}
             <div style={{ flex:1 }} />
             <div style={{ position:"relative" }}>
@@ -1771,7 +2205,8 @@ export default function ALineCRM() {
               }} />
             </div>
           </div>
-        ) : tab === "roles" ? (
+        ) : (
+          /* ── Roles filter bar ── */
           <div style={{ display:"flex", alignItems:"center", gap:5, padding:"8px 20px", borderBottom:"1px solid #EBEBED", flexWrap:"wrap" }}>
             {["all",...Object.keys(tierCounts)].map(t => (
               <button key={t} onClick={() => setTierFilter(t)} style={{
@@ -1791,27 +2226,6 @@ export default function ALineCRM() {
                 background: sourceFilter===s ? "#5B5FC7" : "#fff",
                 color: sourceFilter===s ? "#fff" : "#6B6F76",
               }}>{s}</button>
-            ))}
-            <div style={{ flex:1 }} />
-            <div style={{ position:"relative" }}>
-              <span style={{ position:"absolute", left:9, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"#A0A3A9" }}>⌕</span>
-              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Filter…" style={{
-                padding:"5px 10px 5px 26px", borderRadius:6, border:"1px solid #EBEBED",
-                fontSize:12, fontFamily:"inherit", outline:"none", width:170, color:"#1A1A1A",
-              }} />
-            </div>
-          </div>
-        ) : (
-          <div style={{ display:"flex", alignItems:"center", gap:5, padding:"8px 20px", borderBottom:"1px solid #EBEBED", flexWrap:"wrap" }}>
-            {["all",...Object.keys(statusCounts)].map(s => (
-              <button key={s} onClick={() => setStatusFilter(s)} style={{
-                padding:"4px 10px", borderRadius:4, fontSize:12, fontWeight:500, cursor:"pointer",
-                border: statusFilter===s ? "1.5px solid #1A1A1A" : "1px solid #EBEBED",
-                background: statusFilter===s ? "#1A1A1A" : "#fff",
-                color: statusFilter===s ? "#fff" : "#6B6F76",
-              }}>
-                {s==="all" ? `All ${companies.length}` : `${STATUS[s]?.label||s} ${statusCounts[s]}`}
-              </button>
             ))}
             <div style={{ flex:1 }} />
             <div style={{ position:"relative" }}>
@@ -1891,63 +2305,6 @@ export default function ALineCRM() {
                 </tbody>
               </table>
             )
-          ) : tab === "people" ? (
-            filteredPeople.length === 0 ? (
-              <div style={{ padding:60, textAlign:"center", color:"#A0A3A9" }}>
-                <div style={{ fontSize:26, marginBottom:6 }}>∅</div>
-                <div style={{ fontSize:14, fontWeight:500 }}>No contacts yet</div>
-                <div style={{ fontSize:12, marginTop:4 }}>Contacts appear when companies are enriched.</div>
-              </div>
-            ) : (
-              <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
-                <thead>
-                  <tr>
-                    <ColHead width="12.5%" sk="name" sort={sort} onSort={doSort}>Name</ColHead>
-                    <ColHead width="12.5%">Title</ColHead>
-                    <ColHead width="12.5%" sk="company_name" sort={sort} onSort={doSort}>Company</ColHead>
-                    <ColHead width="12.5%">Email</ColHead>
-                    <ColHead width="12.5%">Phone</ColHead>
-                    <ColHead width="12.5%">LinkedIn</ColHead>
-                    <ColHead width="12.5%">Source</ColHead>
-                    <ColHead width="12.5%" sk="created_at" sort={sort} onSort={doSort}>Added</ColHead>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredPeople.slice(0,200).map(p => {
-                    const co = cMap.current[p.company_id];
-                    return (
-                      <tr key={`${p.id}-${p.company_id}`} onClick={() => { const co2 = cMap.current[p.company_id]; if (co2) { setSelectedCompany(co2); setSelectedCompanyIndex(filteredCompanies.indexOf(co2)); } setSelectedPerson(p); setSelectedPersonIndex(filteredPeople.indexOf(p)); setSelectedRole(null); setSelectedRoleIndex(-1); }} style={{ borderBottom:"1px solid #F7F7F8", cursor:"pointer" }}
-                        onMouseEnter={e => e.currentTarget.style.background="#F7F7F8"}
-                        onMouseLeave={e => e.currentTarget.style.background="transparent"}>
-                        <td style={{ padding:"9px 14px" }}>
-                          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                            <div style={{ width:28, height:28, borderRadius:6, background: p.is_decision_maker ? "#1A1A1A" : "#EBEBED", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:700, color: p.is_decision_maker ? "#fff" : "#6B6F76", flexShrink:0 }}>
-                              {p.name?.charAt(0) || "?"}
-                            </div>
-                            <span style={{ fontWeight:600, fontSize:13 }}>{p.name || "—"}</span>
-                          </div>
-                        </td>
-                        <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.role_at_company || p.title || "—"}</td>
-                        <td style={{ padding:"9px 14px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                          <span style={{ fontWeight:500, fontSize:12 }}>{co?.name || "—"}</span>
-                        </td>
-                        <td style={{ padding:"9px 14px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                          {p.email ? <a href={`mailto:${p.email}`} onClick={e=>e.stopPropagation()} style={{ fontSize:12, color:"#5B5FC7", textDecoration:"none" }}>{p.email}</a> : <span style={{ color:"#A0A3A9", fontSize:12 }}>—</span>}
-                        </td>
-                        <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.phone || "—"}</td>
-                        <td style={{ padding:"9px 14px" }}>
-                          {p.linkedin_url ? <a href={p.linkedin_url} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{ padding:"3px 8px", borderRadius:4, background:"#0A66C2", color:"#fff", fontSize:10, fontWeight:600, textDecoration:"none" }}>LinkedIn</a> : <span style={{ color:"#A0A3A9", fontSize:12 }}>—</span>}
-                        </td>
-                        <td style={{ padding:"9px 14px" }}><SourcePill source={p.source} /></td>
-                        <td style={{ padding:"9px 14px", color:"#A0A3A9", fontSize:12, whiteSpace:"nowrap" }}>
-                          {p.created_at ? new Date(p.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short"}) : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )
           ) : tab === "agencies" ? (
             (() => {
               const filteredAgencies = agencies.filter(a => {
@@ -1963,238 +2320,106 @@ export default function ALineCRM() {
                   <div style={{ fontSize:12, marginTop:4 }}>Run the agency finder to discover agencies.</div>
                 </div>
               ) : (
-                <div style={{ display:"flex", flex:1, minHeight:0 }}>
-                  {/* Agency list */}
-                  <div style={{ flex: selectedAgency ? 2 : 1, overflow:"auto", borderRight: selectedAgency ? "1px solid #EBEBED" : "none" }}>
-                    <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
-                      <thead>
-                        <tr>
-                          {(() => { const pct = selectedAgency ? "20%" : "14.3%"; return <>
-                          <ColHead width={pct}>Agency</ColHead>
-                          <ColHead width={pct}>Status</ColHead>
-                          <ColHead width={pct}>Quality</ColHead>
-                          <ColHead width={pct}>Headcount</ColHead>
-                          {!selectedAgency && <ColHead width={pct}>Location</ColHead>}
-                          <ColHead width={pct}>Outreach</ColHead>
-                          {!selectedAgency && <ColHead width={pct}>Added</ColHead>}
-                          </>; })()}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredAgencies.slice(0,200).map(a => (
-                          <tr key={a.id} onClick={async () => {
-                            setSelectedAgency(a);
-                            try {
-                              const contacts = await supaFetch("agency_contact", `agency_id=eq.${a.id}&order=is_primary.desc`);
-                              setAgencyContacts(contacts || []);
-                            } catch { setAgencyContacts([]); }
-                          }} style={{
-                            borderBottom:"1px solid #F7F7F8", cursor:"pointer",
-                            background: selectedAgency?.id === a.id ? "#EDE9FE" : "transparent",
-                          }}
-                            onMouseEnter={e => { if (selectedAgency?.id !== a.id) e.currentTarget.style.background="#F7F7F8"; }}
-                            onMouseLeave={e => { if (selectedAgency?.id !== a.id) e.currentTarget.style.background="transparent"; }}>
-                            <td style={{ padding:"9px 14px" }}>
-                              <div style={{ fontWeight:600, fontSize:13 }}>{a.name}</div>
-                              <div style={{ fontSize:11, color:"#6B6F76" }}>
-                                {a.domain && <a href={`https://${a.domain}`} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{ color:"#5B5FC7", textDecoration:"none" }}>{a.domain}</a>}
-                              </div>
-                            </td>
-                            <td style={{ padding:"9px 14px" }}>
-                              {a.is_direct_competitor ? (
-                                <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:600, background:"#FDECEC", color:"#C13030" }}>Competitor</span>
-                              ) : (
-                                <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background: a.enrichment_status==="enriched"?"#D1FAE5":"#FEF3C7", color: a.enrichment_status==="enriched"?"#065F46":"#92400E" }}>{a.enrichment_status || "pending"}</span>
-                              )}
-                            </td>
-                            <td style={{ padding:"9px 14px", textAlign:"center" }}>
-                              {a.quality_score != null ? (
-                                <span style={{ fontWeight:700, fontSize:13, color: a.quality_score >= 8 ? "#065F46" : a.quality_score >= 5 ? "#AD5700" : "#A0A3A9" }}>{a.quality_score}</span>
-                              ) : <span style={{ color:"#A0A3A9" }}>—</span>}
-                            </td>
-                            <td style={{ padding:"9px 14px", fontSize:12, color:"#6B6F76" }}>{a.headcount || "—"}</td>
-                            {!selectedAgency && <td style={{ padding:"9px 14px", fontSize:12, color:"#6B6F76" }}>{[a.hq_city, a.hq_country].filter(Boolean).join(", ") || "—"}</td>}
-                            <td style={{ padding:"9px 14px" }}>
-                              <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background:"#F2F3F5", color:"#6B6F76" }}>{a.outreach_status || "pending"}</span>
-                            </td>
-                            {!selectedAgency && <td style={{ padding:"9px 14px", color:"#A0A3A9", fontSize:12, whiteSpace:"nowrap" }}>
-                              {a.created_at ? new Date(a.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short"}) : "—"}
-                            </td>}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Agency detail panel */}
-                  {selectedAgency && (
-                    <div style={{ flex:3, overflow:"auto", padding:"20px 24px" }}>
-                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20 }}>
-                        <div>
-                          <div style={{ fontSize:18, fontWeight:700, color:"#1A1A1A" }}>{selectedAgency.name}</div>
-                          {selectedAgency.domain && (
-                            <a href={`https://${selectedAgency.domain}`} target="_blank" rel="noopener" style={{ fontSize:12, color:"#5B5FC7", textDecoration:"none" }}>{selectedAgency.domain} ↗</a>
+                <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
+                  <thead>
+                    <tr>
+                      <ColHead width="14.3%">Agency</ColHead>
+                      <ColHead width="14.3%">Status</ColHead>
+                      <ColHead width="14.3%">Quality</ColHead>
+                      <ColHead width="14.3%">Headcount</ColHead>
+                      <ColHead width="14.3%">Location</ColHead>
+                      <ColHead width="14.3%">Outreach</ColHead>
+                      <ColHead width="14.3%">Added</ColHead>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredAgencies.slice(0,200).map(a => (
+                      <tr key={a.id} onClick={async () => {
+                        setSelectedAgency(a);
+                        setAgencyDetailTab("summary");
+                        setShowAgencyContactForm(false);
+                        try {
+                          const contacts = await supaFetch("agency_contact", `agency_id=eq.${a.id}&order=is_primary.desc`);
+                          setAgencyContacts(contacts || []);
+                        } catch { setAgencyContacts([]); }
+                      }} style={{ borderBottom:"1px solid #F7F7F8", cursor:"pointer" }}
+                        onMouseEnter={e => e.currentTarget.style.background="#F7F7F8"}
+                        onMouseLeave={e => e.currentTarget.style.background="transparent"}>
+                        <td style={{ padding:"9px 14px" }}>
+                          <div style={{ fontWeight:600, fontSize:13 }}>{a.name}</div>
+                          <div style={{ fontSize:11, color:"#6B6F76" }}>
+                            {a.domain && <a href={`https://${a.domain}`} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{ color:"#5B5FC7", textDecoration:"none" }}>{a.domain}</a>}
+                          </div>
+                        </td>
+                        <td style={{ padding:"9px 14px" }}>
+                          {a.is_direct_competitor ? (
+                            <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:600, background:"#FDECEC", color:"#C13030" }}>Competitor</span>
+                          ) : (
+                            <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background: a.enrichment_status==="enriched"?"#D1FAE5":"#FEF3C7", color: a.enrichment_status==="enriched"?"#065F46":"#92400E" }}>{a.enrichment_status || "pending"}</span>
                           )}
-                        </div>
-                        <button onClick={() => { setSelectedAgency(null); setAgencyContacts([]); }} style={{
-                          padding:"4px 10px", borderRadius:6, border:"1px solid #EBEBED", background:"#fff",
-                          cursor:"pointer", fontSize:14, color:"#6B6F76", fontFamily:"inherit",
-                        }}>✕</button>
-                      </div>
-
-                      {/* Status badges */}
-                      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:20 }}>
-                        {selectedAgency.is_direct_competitor && (
-                          <span style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:600, background:"#FDECEC", color:"#C13030" }}>Competitor</span>
-                        )}
-                        <span style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:500, background: selectedAgency.enrichment_status==="enriched"?"#D1FAE5":"#FEF3C7", color: selectedAgency.enrichment_status==="enriched"?"#065F46":"#92400E" }}>
-                          {selectedAgency.enrichment_status || "pending"}
-                        </span>
-                        {selectedAgency.quality_score != null && (
-                          <span style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:600, background:"#F2F3F5", color:"#1A1A1A" }}>Quality: {selectedAgency.quality_score}/10</span>
-                        )}
-                        {selectedAgency.source && (
-                          <span style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:500, background:"#F2F3F5", color:"#6B6F76" }}>Source: {selectedAgency.source}</span>
-                        )}
-                      </div>
-
-                      {/* Description */}
-                      {selectedAgency.description && (
-                        <div style={{ fontSize:13, color:"#6B6F76", lineHeight:1.7, marginBottom:20, padding:"12px 16px", background:"#F7F7F8", borderRadius:8 }}>
-                          {selectedAgency.description}
-                        </div>
-                      )}
-
-                      {/* Details grid */}
-                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"10px 24px", marginBottom:24 }}>
-                        {[
-                          ["Location", [selectedAgency.hq_city, selectedAgency.hq_country].filter(Boolean).join(", ")],
-                          ["Headcount", selectedAgency.headcount],
-                          ["Founded", selectedAgency.founded_year],
-                          ["Geographic Focus", selectedAgency.geographic_focus],
-                          ["Outreach Status", selectedAgency.outreach_status],
-                          ["Added", selectedAgency.created_at ? new Date(selectedAgency.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : null],
-                        ].filter(([,v]) => v).map(([label, value]) => (
-                          <div key={label}>
-                            <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:3 }}>{label}</div>
-                            <div style={{ fontSize:13, color:"#1A1A1A" }}>{value}</div>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Specialization */}
-                      {selectedAgency.specialization && selectedAgency.specialization.length > 0 && (
-                        <div style={{ marginBottom:20 }}>
-                          <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>Specialization</div>
-                          <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
-                            {selectedAgency.specialization.map((s, i) => (
-                              <span key={i} style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:500, background:"#EDE9FE", color:"#6D28D9" }}>{s}</span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Competitor reasoning */}
-                      {selectedAgency.is_direct_competitor_reason && (
-                        <div style={{ marginBottom:20 }}>
-                          <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>Competitor Assessment</div>
-                          <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, padding:"10px 14px", background:"#FEF2F2", borderRadius:6, border:"1px solid #FECACA" }}>
-                            {selectedAgency.is_direct_competitor_reason}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Quality reasoning */}
-                      {selectedAgency.quality_reason && (
-                        <div style={{ marginBottom:20 }}>
-                          <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>Quality Assessment</div>
-                          <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, padding:"10px 14px", background:"#F7F7F8", borderRadius:6 }}>
-                            {selectedAgency.quality_reason}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* GF / Contacts */}
-                      <div style={{ marginBottom:20, paddingTop:16, borderTop:"1px solid #EBEBED" }}>
-                        <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:10 }}>
-                          Contacts {agencyContacts.length > 0 ? `(${agencyContacts.length})` : ""}
-                        </div>
-                        {agencyContacts.length === 0 ? (
-                          <div style={{ fontSize:12, color:"#A0A3A9", padding:16, textAlign:"center" }}>No contacts found yet</div>
-                        ) : (
-                          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                            {agencyContacts.map((c, i) => (
-                              <div key={c.id || i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", background:"#F7F7F8", borderRadius:10 }}>
-                                <div style={{ width:36, height:36, borderRadius:8, background:"#1A1A1A", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700, color:"#fff", flexShrink:0 }}>
-                                  {c.name?.charAt(0) || "?"}
-                                </div>
-                                <div style={{ flex:1, minWidth:0 }}>
-                                  <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                                    <span style={{ fontSize:13, fontWeight:600, color:"#1A1A1A" }}>{c.name}</span>
-                                    {c.is_primary && <span style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:3, background:"#FEF3C7", color:"#92400E" }}>GF</span>}
-                                    {c.confidence && (
-                                      <span style={{ fontSize:9, fontWeight:600, padding:"1px 5px", borderRadius:3,
-                                        background: c.confidence==="high"?"#D1FAE5":c.confidence==="medium"?"#FEF3C7":"#F2F3F5",
-                                        color: c.confidence==="high"?"#065F46":c.confidence==="medium"?"#92400E":"#6B6F76",
-                                      }}>{c.confidence}</span>
-                                    )}
-                                  </div>
-                                  <div style={{ fontSize:11, color:"#6B6F76", marginTop:1 }}>{c.title || ""}</div>
-                                  <div style={{ display:"flex", gap:8, marginTop:4, flexWrap:"wrap" }}>
-                                    {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noopener" style={{ fontSize:11, color:"#0A66C2", textDecoration:"none", fontWeight:600 }}>LinkedIn</a>}
-                                    {c.email && <a href={`mailto:${c.email}`} style={{ fontSize:11, color:"#5B5FC7", textDecoration:"none" }}>{c.email}</a>}
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                        </td>
+                        <td style={{ padding:"9px 14px", textAlign:"center" }}>
+                          {a.quality_score != null ? (
+                            <span style={{ fontWeight:700, fontSize:13, color: a.quality_score >= 8 ? "#065F46" : a.quality_score >= 5 ? "#AD5700" : "#A0A3A9" }}>{a.quality_score}</span>
+                          ) : <span style={{ color:"#A0A3A9" }}>—</span>}
+                        </td>
+                        <td style={{ padding:"9px 14px", fontSize:12, color:"#6B6F76" }}>{a.headcount || "—"}</td>
+                        <td style={{ padding:"9px 14px", fontSize:12, color:"#6B6F76" }}>{[a.hq_city, a.hq_country].filter(Boolean).join(", ") || "—"}</td>
+                        <td style={{ padding:"9px 14px" }}>
+                          <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background:"#F2F3F5", color:"#6B6F76" }}>{a.outreach_status || "pending"}</span>
+                        </td>
+                        <td style={{ padding:"9px 14px", color:"#A0A3A9", fontSize:12, whiteSpace:"nowrap" }}>
+                          {a.created_at ? new Date(a.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short"}) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               );
             })()
-          ) : tab === "companies" ? (
-            filteredCompanies.length === 0 ? (
+          ) : (
+            /* ── Talent Pool table ── */
+            filteredCandidates.length === 0 ? (
               <div style={{ padding:60, textAlign:"center", color:"#A0A3A9" }}>
-                <div style={{ fontSize:26, marginBottom:6 }}>∅</div>
-                <div style={{ fontSize:14, fontWeight:500 }}>No companies yet</div>
-                <div style={{ fontSize:12, marginTop:4 }}>Run the scraper to populate records.</div>
+                <div style={{ fontSize:26, marginBottom:6 }}>⊘</div>
+                <div style={{ fontSize:14, fontWeight:500 }}>No candidates yet</div>
+                <div style={{ fontSize:12, marginTop:4 }}>Run the candidate pipeline to discover talent.</div>
               </div>
             ) : (
               <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
                 <thead>
                   <tr>
-                    <ColHead sk="name" sort={sort} onSort={doSort} width="16.6%">Company</ColHead>
-                    <ColHead width="16.6%">Status</ColHead>
-                    <ColHead width="16.6%" sk="industry" sort={sort} onSort={doSort}>Industry</ColHead>
-                    <ColHead width="16.6%">Fit</ColHead>
-                    <ColHead width="16.6%" sk="headcount" sort={sort} onSort={doSort}>Headcount</ColHead>
-                    <ColHead width="16.6%" sk="created_at" sort={sort} onSort={doSort}>Added</ColHead>
+                    <ColHead width="20%">Name</ColHead>
+                    <ColHead width="20%">Title</ColHead>
+                    <ColHead width="10%">Tier</ColHead>
+                    <ColHead width="8%" align="center">Score</ColHead>
+                    <ColHead width="16%">Location</ColHead>
+                    <ColHead width="12%">Source</ColHead>
+                    <ColHead width="14%">Added</ColHead>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredCompanies.slice(0,200).map(c => {
-                    const st = STATUS[c.status] || { label:c.status||"—", bg:"#F2F3F5", color:"#6B6F76" };
-                    const fitColors = { high:{bg:"#D1FAE5",color:"#065F46"}, medium:{bg:"#FFF0E1",color:"#AD5700"}, low:{bg:"#FDECEC",color:"#C13030"} };
-                    const fit = fitColors[c.arteq_fit] || null;
+                  {filteredCandidates.slice(0,200).map(c => {
+                    const tier = CAND_TIER[c.tier] || { label:c.tier||"—", bg:"#F2F3F5", color:"#6B6F76" };
                     return (
-                      <tr key={c.id} onClick={() => { setSelectedCompany(c); setSelectedCompanyIndex(filteredCompanies.indexOf(c)); }} style={{ borderBottom:"1px solid #F7F7F8", cursor:"pointer" }}
+                      <tr key={c.id} style={{ borderBottom:"1px solid #F7F7F8" }}
                         onMouseEnter={e => e.currentTarget.style.background="#F7F7F8"}
                         onMouseLeave={e => e.currentTarget.style.background="transparent"}>
-                        <td style={{ padding:"9px 14px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                          <div style={{ fontWeight:600, fontSize:13, overflow:"hidden", textOverflow:"ellipsis" }}>{c.name}</div>
-                        </td>
                         <td style={{ padding:"9px 14px" }}>
-                          <span style={{ padding:"3px 8px", borderRadius:4, fontSize:12, fontWeight:500, background:st.bg, color:st.color }}>{st.label}</span>
+                          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                            <span style={{ fontWeight:600, fontSize:13 }}>{c.full_name || "—"}</span>
+                            {c.linkedin_url && (
+                              <a href={c.linkedin_url} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{ padding:"2px 6px", borderRadius:4, background:"#0A66C2", color:"#fff", fontSize:9, fontWeight:600, textDecoration:"none" }}>in</a>
+                            )}
+                          </div>
                         </td>
-                        <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.industry||"—"}</td>
+                        <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.current_title || "—"}</td>
                         <td style={{ padding:"9px 14px" }}>
-                          {fit ? <span style={{ padding:"3px 8px", borderRadius:4, fontSize:12, fontWeight:500, background:fit.bg, color:fit.color }}>{c.arteq_fit}</span>
-                            : <span style={{ color:"#A0A3A9", fontSize:12 }}>—</span>}
+                          <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background:tier.bg, color:tier.color }}>{tier.label}</span>
                         </td>
-                        <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12 }}>{c.headcount||"—"}</td>
+                        <td style={{ padding:"9px 14px", textAlign:"center" }}><Score v={c.score} /></td>
+                        <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.location || "—"}</td>
+                        <td style={{ padding:"9px 14px" }}><SourcePill source={c.source} /></td>
                         <td style={{ padding:"9px 14px", color:"#A0A3A9", fontSize:12, whiteSpace:"nowrap" }}>
                           {c.created_at ? new Date(c.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short"}) : "—"}
                         </td>
@@ -2203,137 +2428,6 @@ export default function ALineCRM() {
                   })}
                 </tbody>
               </table>
-            )
-          ) : tab === "matches" ? (
-            (() => {
-              const rMap = {}; roles.forEach(r => { rMap[r.id] = r; });
-              const filteredMatches = allMatches.filter(m => {
-                if (matchStatusFilter !== "all" && m.status !== matchStatusFilter) return false;
-                if (search) {
-                  const cand = allCandidates[m.candidate_id];
-                  const role = rMap[m.role_id];
-                  const co = role ? cMap.current[role.company_id] : null;
-                  const hay = `${cand?.full_name||""} ${role?.title||""} ${co?.name||""}`.toLowerCase();
-                  if (!hay.includes(search.toLowerCase())) return false;
-                }
-                return true;
-              });
-              return filteredMatches.length === 0 ? (
-                <div style={{ padding:60, textAlign:"center", color:"#A0A3A9" }}>
-                  <div style={{ fontSize:26, marginBottom:6 }}>◇</div>
-                  <div style={{ fontSize:14, fontWeight:500 }}>No matches yet</div>
-                  <div style={{ fontSize:12, marginTop:4 }}>Run the research agent to generate candidate matches.</div>
-                </div>
-              ) : (
-                <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
-                  <thead>
-                    <tr>
-                      <ColHead width="14.3%">Role</ColHead>
-                      <ColHead width="14.3%">Candidate</ColHead>
-                      <ColHead width="14.3%" align="center">Score</ColHead>
-                      <ColHead width="14.3%">Status</ColHead>
-                      <ColHead width="14.3%">Function</ColHead>
-                      <ColHead width="14.3%">Location</ColHead>
-                      <ColHead width="14.3%">Created</ColHead>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredMatches.slice(0,200).map(match => {
-                      const cand = allCandidates[match.candidate_id] || {};
-                      const role = rMap[match.role_id] || {};
-                      const co = cMap.current[role.company_id] || {};
-                      return (
-                        <tr key={match.id} onClick={() => {
-                          if (co.id) { setSelectedCompany(co); setSelectedCompanyIndex(-1); }
-                          if (role.id) { setSelectedRole(role); setSelectedRoleIndex(-1); }
-                          setSelectedPerson(null); setSelectedPersonIndex(-1);
-                        }} style={{ cursor:"pointer", borderBottom:"1px solid #F7F7F8" }}
-                          onMouseEnter={e => e.currentTarget.style.background="#F7F7F8"}
-                          onMouseLeave={e => e.currentTarget.style.background="transparent"}>
-                          <td style={{ padding:"9px 14px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                            <div style={{ fontWeight:600, fontSize:12, overflow:"hidden", textOverflow:"ellipsis" }}>{cleanTitle(role.title) || "—"}</div>
-                            <div style={{ fontSize:10, color:"#A0A3A9", overflow:"hidden", textOverflow:"ellipsis" }}>{co.name || "—"}</div>
-                          </td>
-                          <td style={{ padding:"9px 14px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                            <div style={{ fontWeight:600, fontSize:12, overflow:"hidden", textOverflow:"ellipsis" }}>{cand.full_name || "—"}</div>
-                            <div style={{ fontSize:10, color:"#A0A3A9", overflow:"hidden", textOverflow:"ellipsis" }}>{cand.current_title || "—"}</div>
-                          </td>
-                          <td style={{ padding:"9px 14px", textAlign:"center" }}><MatchScorePill score={match.match_score} /></td>
-                          <td style={{ padding:"9px 14px" }}><MatchStatusPill status={match.status} /></td>
-                          <td style={{ padding:"9px 14px" }}>
-                            {match.function_match ? <span style={{ fontSize:11, color:"#065F46" }}>✓</span> : <span style={{ fontSize:11, color:"#A0A3A9" }}>✗</span>}
-                          </td>
-                          <td style={{ padding:"9px 14px" }}>
-                            {match.location_match ? <span style={{ fontSize:11, color:"#065F46" }}>✓</span> : <span style={{ fontSize:11, color:"#A0A3A9" }}>✗</span>}
-                          </td>
-                          <td style={{ padding:"9px 14px", color:"#A0A3A9", fontSize:12, whiteSpace:"nowrap" }}>
-                            {match.created_at ? new Date(match.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short"}) : "—"}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              );
-            })()
-          ) : (
-            /* Agent Log Tab */
-            agentLogs.length === 0 ? (
-              <div style={{ padding:60, textAlign:"center", color:"#A0A3A9" }}>
-                <div style={{ fontSize:26, marginBottom:6 }}>🤖</div>
-                <div style={{ fontSize:14, fontWeight:500 }}>No agent activity yet</div>
-                <div style={{ fontSize:12, marginTop:4 }}>Run the orchestrator to generate decisions.</div>
-              </div>
-            ) : (
-              <div style={{ padding:"16px 20px" }}>
-                {(() => {
-                  const ACTION_STYLE = {
-                    promote_company:   { icon:"⬆", bg:"#D1FAE5", color:"#065F46", label:"Promoted" },
-                    downgrade_company: { icon:"⬇", bg:"#FDECEC", color:"#C13030", label:"Downgraded" },
-                    expire_role:       { icon:"⏰", bg:"#FFF0E1", color:"#AD5700", label:"Expired" },
-                    dedup_contact:     { icon:"🔗", bg:"#DBEAFE", color:"#1D4ED8", label:"Deduped" },
-                    enrich_contact:    { icon:"✉", bg:"#EDE9FE", color:"#6D28D9", label:"Enriched" },
-                    outreach_draft:    { icon:"📝", bg:"#DBEAFE", color:"#1D4ED8", label:"Draft" },
-                    outreach_sent:     { icon:"📨", bg:"#D1FAE5", color:"#065F46", label:"Sent" },
-                    outreach_reply:    { icon:"💬", bg:"#D1FAE5", color:"#065F46", label:"Auto-Reply" },
-                    inbound_reply:     { icon:"📩", bg:"#FEF3C7", color:"#92400E", label:"Reply Received" },
-                    sdr_handoff_ae:    { icon:"🤝", bg:"#EDE9FE", color:"#6D28D9", label:"SDR → AE" },
-                    ae_response:       { icon:"🎯", bg:"#D1FAE5", color:"#065F46", label:"AE Response" },
-                    ae_meeting_prep:   { icon:"📋", bg:"#FEF3C7", color:"#92400E", label:"Meeting Prep" },
-                    ae_proposal:       { icon:"📄", bg:"#EDE9FE", color:"#6D28D9", label:"Proposal" },
-                  };
-                  // Group by date
-                  const groups = {};
-                  agentLogs.forEach(log => {
-                    const d = log.created_at ? new Date(log.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : "Unknown";
-                    if (!groups[d]) groups[d] = [];
-                    groups[d].push(log);
-                  });
-                  return Object.entries(groups).map(([date, logs]) => (
-                    <div key={date} style={{ marginBottom:20 }}>
-                      <div style={{ fontSize:11, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.4, marginBottom:8, borderBottom:"1px solid #F7F7F8", paddingBottom:6 }}>{date}</div>
-                      {logs.map((log, i) => {
-                        const st = ACTION_STYLE[log.action] || { icon:"●", bg:"#F2F3F5", color:"#6B6F76", label:log.action };
-                        return (
-                          <div key={log.id || i} style={{ display:"flex", gap:10, padding:"8px 0", borderBottom:"1px solid #F7F7F8" }}>
-                            <span style={{ width:28, height:28, borderRadius:6, background:st.bg, color:st.color, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>{st.icon}</span>
-                            <div style={{ flex:1, minWidth:0 }}>
-                              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                                <span style={{ padding:"2px 6px", borderRadius:3, fontSize:10, fontWeight:600, background:st.bg, color:st.color }}>{st.label}</span>
-                                <span style={{ fontSize:11, color:"#A0A3A9" }}>{log.entity_type}</span>
-                                <span style={{ fontSize:10, color:"#A0A3A9", marginLeft:"auto" }}>
-                                  {log.created_at ? new Date(log.created_at).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}) : ""}
-                                </span>
-                              </div>
-                              <div style={{ fontSize:12, color:"#1A1A1A", marginTop:3, lineHeight:1.4 }}>{log.reason || "—"}</div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ));
-                })()}
-              </div>
             )
           )}
         </div>
