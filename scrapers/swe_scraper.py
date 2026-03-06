@@ -57,6 +57,22 @@ EXCLUDED_TITLES = [
     "intern ", "internship", "praktikum", "werkstudent",
     "junior", "assistant to", "working student", "trainee",
     "head of", "vp ", "vice president", "director of", "cto", "cpo", "ceo", "cfo",
+    # Non-engineering roles that currently pass the filter
+    "technischer redakteur", "technical writer",
+    "bauleiter", "bau- und", "glasreinigung", "reinigung",
+    "personalberater", "personalberatung",
+    "steuerfachangestellter", "steuerfachwirt", "bilanzbuchhalter",
+    "projektleiter elektrotechnik", "projektleiter fertigung",
+    "sachbearbeiter", "versicherung",
+    # IT Ops / Sysadmin — not SWE, not placeable as freelance dev
+    "it-systemadministrator", "systemadministrator",
+    "fachinformatiker systemintegration",
+    "it administrator", "it-administrator",
+    "system engineer client", "it spezialist",
+    # Apprenticeships — "ausbildung" alone misses compound forms
+    "ausbildung zum", "ausbildung zur",
+    # Inhouse consulting — not good for fractional
+    "inhouse berater", "inhouse consultant",
 ]
 
 DACH_SIGNALS = [
@@ -164,10 +180,10 @@ LOW_TALENT_DENSITY_CITIES = [
     "freiburg", "heidelberg", "heilbronn", "karlsruhe", "mainz",
     "mannheim", "reutlingen", "ulm",
     # Hessen sonstige
-    "darmstadt", "kassel", "wiesbaden",
+    "darmstadt", "giessen", "gießen", "kassel", "wiesbaden",
     # Mitteldeutschland
-    "chemnitz", "cottbus", "erfurt", "halle", "jena",
-    "magdeburg", "potsdam", "rostock",
+    "bernburg", "chemnitz", "cottbus", "erfurt", "halle", "jena",
+    "magdeburg", "rostock",
     # Sonstige
     "bielefeld", "bonn", "kiel", "koblenz", "kaiserslautern",
     "lübeck", "lubeck", "münster", "munster", "saarbrücken",
@@ -187,6 +203,7 @@ HIGH_TALENT_DENSITY_EXCLUDE = [
     "berlin", "münchen", "munich", "hamburg", "frankfurt",
     "köln", "cologne", "koln", "stuttgart", "zürich", "zurich",
     "basel", "wien", "vienna", "geneva", "genf",
+    "potsdam",
 ]
 
 
@@ -542,32 +559,55 @@ Description: {(j.get('description') or '')[:1200]}
 Source: {j['source']}
 """
 
-        prompt = f"""You are a scoring engine for A-Line, a DACH staffing platform that places freelance/contractor developers at companies that struggle to hire.
+        prompt = f"""You score job postings for A-Line, a DACH platform that places
+freelance/contractor software engineers and tech specialists at companies
+that struggle to hire locally.
 
-Score each SWE job posting 0-100 on how likely the company is OPEN to a freelance/contractor alternative:
+TARGET ROLES: Software engineers, backend/frontend/fullstack developers,
+DevOps engineers, platform engineers, security engineers,
+embedded/firmware engineers, data engineers, ML engineers.
 
-## Scoring Rubric
+NOT TARGET: IT sysadmins, IT infrastructure, technical writers, project
+managers, business analysts, accounting, HR, construction, facilities.
 
-+30 pts: Role is in a low talent density city (not Berlin/Munich/Hamburg/Frankfurt/Zurich/Vienna)
-+20 pts: Senior or specialist role (5+ years required, niche stack)
-+15 pts: Startup or scale-up context (Series A/B, fast growth, small team)
-+15 pts: Urgency signals ("sofort", "ASAP", "immediately", "dringend", "schnellstmöglich")
+Score 0-100 on how likely this company is OPEN to a freelance/contractor:
+
++30 pts: Role is in a low talent density city (not Berlin/Munich/Hamburg/
+         Frankfurt/Zurich/Vienna/Potsdam)
++20 pts: Senior or specialist with niche/rare tech stack
++20 pts: Security engineer role — high freelance placement rate
++15 pts: Startup or scale-up context (fast growth, small team, Series A/B)
++15 pts: Urgency signals ("sofort", "ASAP", "immediately", "dringend",
+         "schnellstmöglich", "nächstmöglichen Zeitpunkt", "ab sofort")
 +10 pts: Small team context (<50 employees mentioned or implied)
-+10 pts: Niche/rare tech stack hard to find locally
++10 pts: Niche/rare tech stack very hard to find locally
++10 pts: Maritime, industrial, or embedded systems context — niche talent pool
+-10 pts: "Inhouse" in title or description (inhouse roles rarely go fractional)
+-10 pts: Defence/Verteidigung/military context — access and clearance barriers
+-15 pts: IT infrastructure/ops role (sysadmin, network, endpoint management)
+         rather than pure software development
 -20 pts: Large enterprise/corporate (>2000 employees)
 -30 pts: Staffing/recruitment agency posting
--10 pts: Role says "no agencies" or "no freelancers"
 
-## Disqualify (score=0)
-- Staffing agency posting
-- Clearly junior/intern role
-- Outside DACH
+Disqualify (score=0, is_disqualified=true) if ANY of these:
+- Staffing/recruitment agency is the actual employer (not just posting platform)
+- Clearly junior/intern/apprenticeship (Ausbildung, Werkstudent, Praktikum)
+- Role is outside DACH
+- Role is non-technical: construction, cleaning, accounting, insurance,
+  HR consulting, technical writing, project management without engineering
+- IT sysadmin or IT support role (not software development)
 
-Also extract per role:
-- tech_stack: comma-separated main technologies found in the posting
+DO NOT disqualify based on company name alone if the role itself is valid.
+Example: "passport Business Engineering GmbH" sounds like an agency but posts
+real engineering roles — check the actual role content, not just company name.
+
+Also extract:
+- tech_stack: comma-separated main technologies, or empty string
 - urgency_signals: urgency phrases found, or empty string
 - company_size_signal: "startup" | "scale-up" | "mid-market" | "enterprise" | "unknown"
 - seniority_level: "junior" | "mid" | "senior" | "lead" | "unknown"
+- role_type: "software_dev" | "security" | "embedded" | "devops" | "data" |
+             "it_ops" | "non_engineering" | "unknown"
 
 {roles_text}
 
@@ -581,7 +621,8 @@ Respond ONLY in JSON:
     "tech_stack": "Python, Django, PostgreSQL",
     "urgency_signals": "sofort, ASAP",
     "company_size_signal": "scale-up",
-    "seniority_level": "senior"
+    "seniority_level": "senior",
+    "role_type": "software_dev"
   }}
 ]}}"""
 
@@ -627,6 +668,7 @@ Respond ONLY in JSON:
                     job["urgency_signals"] = cls.get("urgency_signals", "")
                     job["company_size_signal"] = cls.get("company_size_signal", "unknown")
                     job["seniority_level"] = cls.get("seniority_level", "unknown")
+                    job["role_type"] = cls.get("role_type", "unknown")
                     scored.append(job)
 
             time.sleep(0.5)
@@ -645,13 +687,32 @@ Respond ONLY in JSON:
 
 
 # ═══════════════════════════════════════════════════════════
+# POST-SCORING FILTER
+# ═══════════════════════════════════════════════════════════
+
+def filter_by_role_type(jobs):
+    """
+    Drop roles that scored but are not target role types.
+    it_ops and non_engineering should not appear in output
+    even if they scored above 0 due to city/urgency bonuses.
+    """
+    excluded_types = {"it_ops", "non_engineering"}
+    filtered = [j for j in jobs if j.get("role_type", "unknown") not in excluded_types]
+    dropped = len(jobs) - len(filtered)
+    if dropped:
+        logger.info(f"Role type filter: removed {dropped} it_ops/non_engineering roles")
+    return filtered
+
+
+# ═══════════════════════════════════════════════════════════
 # CSV OUTPUT
 # ═══════════════════════════════════════════════════════════
 
 CSV_COLUMNS = [
-    "company", "title", "location", "is_remote", "url", "posted", "source",
-    "score", "tier", "reason", "tech_stack", "urgency_signals",
-    "company_size_signal", "seniority_level",
+    "score", "company", "title", "seniority_level", "role_type",
+    "location", "is_remote", "tech_stack", "urgency_signals",
+    "company_size_signal", "reason",
+    "posted", "source", "url", "tier",
 ]
 
 
@@ -708,7 +769,14 @@ def main():
         logger.info("No roles scored above threshold — done")
         return
 
-    # Step 4: Write CSV (sorted by score desc)
+    # Step 4: Filter out non-target role types
+    scored = filter_by_role_type(scored)
+
+    if not scored:
+        logger.info("No target roles after filtering — done")
+        return
+
+    # Step 5: Write CSV (sorted by score desc)
     scored.sort(key=lambda j: j.get("score", 0), reverse=True)
     output_file = write_csv(scored)
 
