@@ -269,8 +269,6 @@ Return ONLY a JSON object with these exact fields:
     "titles_to_exclude": ["title 1 (reason)"]
   }},
 
-  "linkedin_boolean_search": "(\"Title 1\" OR \"Title 2\") AND (\"Skill 1\" OR \"Skill 2\")",
-
   "red_flags_to_filter_out": [
     "red flag 1",
     "red flag 2"
@@ -283,8 +281,7 @@ Return ONLY a JSON object with these exact fields:
 Rules:
 - Extract from the actual posting text — do not invent requirements not mentioned.
 - For must_have vs nice_to_have: if the posting says "idealerweise", "wünschenswert", "nice to have" → nice_to_have.
-- Write in the same language as the posting (German or English).
-- linkedin_boolean_search should be a practical search string a recruiter can paste into LinkedIn.
+- ALWAYS write in English, even if the posting is in German. Translate all requirements, descriptions, and profiles to English.
 - If information is not available, use null or empty arrays — never hallucinate."""
 
     text = claude_request(prompt, max_tokens=2000, system="You are a sourcing brief extraction agent. Return only valid JSON.")
@@ -353,8 +350,6 @@ def sourcing_brief_to_html(brief):
             html += '<p><strong>Target Companies:</strong> ' + ', '.join(profile["company_types_to_target"]) + '</p>'
 
     # LinkedIn boolean search
-    if brief.get("linkedin_boolean_search"):
-        html += f'<h4>LinkedIn Boolean Search</h4><code>{brief["linkedin_boolean_search"]}</code>'
 
     # Red flags
     red_flags = brief.get("red_flags_to_filter_out", [])
