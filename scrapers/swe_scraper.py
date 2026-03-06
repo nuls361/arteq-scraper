@@ -747,7 +747,16 @@ def write_csv(jobs, filename=None):
         writer.writeheader()
         writer.writerows(jobs)
 
+    # Write slim CSV with just title, seniority, requirements
+    slim_filename = filename.replace(".csv", "_requirements.csv")
+    slim_columns = ["title", "seniority_level", "requirements"]
+    with open(slim_filename, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=slim_columns, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(jobs)
+
     logger.info(f"Wrote {len(jobs)} roles to {filename}")
+    logger.info(f"Wrote {len(jobs)} roles to {slim_filename}")
     return filename
 
 
