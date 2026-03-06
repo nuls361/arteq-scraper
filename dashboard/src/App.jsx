@@ -26,20 +26,6 @@ async function supaPost(table, data) {
   return res.json();
 }
 
-async function supaPatch(table, match, data) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${match}`, {
-    method: "PATCH",
-    headers: {
-      apikey: SUPABASE_KEY,
-      Authorization: `Bearer ${SUPABASE_KEY}`,
-      "Content-Type": "application/json",
-      Prefer: "return=representation",
-    },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error(`${res.status}`);
-  return res.json();
-}
 
 const TIER = {
   hot:    { label: "Hot",    bg: "#FDECEC", color: "#C13030", dot: "#E5484D" },
@@ -79,13 +65,6 @@ function Score({ v }) {
   if (v == null) return <span style={{ color:"#A0A3A9" }}>—</span>;
   const color = v >= 70 ? "#E5484D" : v >= 40 ? "#F5A623" : "#A0A3A9";
   return <span style={{ fontWeight:600, fontSize:13, color, fontVariantNumeric:"tabular-nums" }}>{v}</span>;
-}
-
-function MatchScorePill({ score }) {
-  if (score == null) return <span style={{ color:"#A0A3A9", fontSize:12 }}>—</span>;
-  const bg = score >= 80 ? "#FDECEC" : score >= 60 ? "#FFF0E1" : "#F2F3F5";
-  const color = score >= 80 ? "#C13030" : score >= 60 ? "#AD5700" : "#6B6F76";
-  return <span style={{ padding:"3px 8px", borderRadius:4, fontSize:12, fontWeight:700, background:bg, color, fontVariantNumeric:"tabular-nums" }}>{score}</span>;
 }
 
 
@@ -284,9 +263,6 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
   const [enriching, setEnriching] = useState(false);
   const [companyAgentLogs, setCompanyAgentLogs] = useState([]);
   const [roleMatches, setRoleMatches] = useState([]);
-  const [matchCandidates, setMatchCandidates] = useState({});
-  const [expandedReasoning, setExpandedReasoning] = useState({});
-
   const loadEntries = useCallback(async () => {
     if (!company) return;
     setLoading(true);
@@ -372,9 +348,9 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
     })();
   }, [company]);
 
-  // Load candidate matches for this role
+  // Load candidate match count for this role
   useEffect(() => {
-    if (!role) { setRoleMatches([]); setMatchCandidates({}); return; }
+    if (!role) { setRoleMatches([]); return; }
     (async () => {
       try {
         const matches = await supaFetch(
@@ -382,23 +358,9 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
           `role_id=eq.${role.id}&order=match_score.desc`
         );
         setRoleMatches(matches || []);
-        const cIds = [...new Set((matches || []).map(m => m.candidate_id).filter(Boolean))];
-        if (cIds.length > 0) {
-          const cands = await supaFetch("candidate", `id=in.(${cIds.join(",")})`);
-          const cm = {};
-          (cands || []).forEach(c => { cm[c.id] = c; });
-          setMatchCandidates(cm);
-        }
       } catch (e) { console.error("Match load error:", e); }
     })();
   }, [role]);
-
-  const updateMatchStatus = async (matchId, newStatus) => {
-    try {
-      await supaPatch("role_candidate_match", `id=eq.${matchId}`, { status: newStatus, updated_at: new Date().toISOString() });
-      setRoleMatches(prev => prev.map(m => m.id === matchId ? { ...m, status: newStatus } : m));
-    } catch (e) { console.error("Match status update error:", e); }
-  };
 
   // Load outreach conversation threads for this company
   useEffect(() => {
@@ -1636,7 +1598,6 @@ export default function ALineCRM() {
   const [selectedPersonIndex, setSelectedPersonIndex] = useState(-1);
   const [allPeopleList, setAllPeopleList] = useState([]);
   const [allCandidatesList, setAllCandidatesList] = useState([]);
-  const [talentTierFilter, setTalentTierFilter] = useState("all");
   const [agencies, setAgencies] = useState([]);
   const [agencyFilter, setAgencyFilter] = useState("all");
   const [selectedAgency, setSelectedAgency] = useState(null);
@@ -1646,7 +1607,6 @@ export default function ALineCRM() {
   const [showAgencyContactForm, setShowAgencyContactForm] = useState(false);
   const [newAgencyContact, setNewAgencyContact] = useState({ name:"", title:"", email:"", linkedin_url:"", is_primary:false });
   const [savingAgencyContact, setSavingAgencyContact] = useState(false);
-  const [allCandidates, setAllCandidates] = useState({});
   const cMap = useRef({});
 
   const load = useCallback(async () => {
@@ -1661,9 +1621,6 @@ export default function ALineCRM() {
       ]);
       setAgencies(ag || []);
       setAllCandidatesList(candidates || []);
-      const candMap = {};
-      (candidates || []).forEach(cd => { candMap[cd.id] = cd; });
-      setAllCandidates(candMap);
       setCompanies(c);
       const m = {}; c.forEach(co => { m[co.id] = co; }); cMap.current = m;
       setRoles(r);
@@ -1783,11 +1740,8 @@ export default function ALineCRM() {
     passive:   { label:"Passive",   bg:"#FFF0E1", color:"#AD5700" },
     research:  { label:"Research",  bg:"#EDE9FE", color:"#6D28D9" },
   };
-  const candidateTierCounts = {};
-  allCandidatesList.forEach(c => { candidateTierCounts[c.tier] = (candidateTierCounts[c.tier]||0)+1; });
 
   const filteredCandidates = allCandidatesList.filter(c => {
-    if (talentTierFilter !== "all" && c.tier !== talentTierFilter) return false;
     if (search && !`${c.full_name||""} ${c.current_title||""} ${c.location||""} ${c.source||""}`.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
@@ -1861,7 +1815,7 @@ export default function ALineCRM() {
           <span style={{ fontSize:11, color:"#A0A3A9" }}>{agencies.length || null}</span>
         </div>
 
-        <div onClick={() => { setTab("talent"); setSearch(""); setTalentTierFilter("all"); setSelectedCompany(null); setSelectedCompanyIndex(-1); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); setSelectedAgency(null); setAgencyContacts([]); setSelectedCandidate(null); }} style={{
+        <div onClick={() => { setTab("talent"); setSearch(""); setSelectedCompany(null); setSelectedCompanyIndex(-1); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); setSelectedAgency(null); setAgencyContacts([]); setSelectedCandidate(null); }} style={{
           display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:6,
           background:tab==="talent"?"#EBEBED":"transparent", color:tab==="talent"?"#1A1A1A":"#6B6F76",
           fontSize:13, fontWeight:tab==="talent"?600:400, cursor:"pointer", marginBottom:1,
@@ -2249,16 +2203,6 @@ export default function ALineCRM() {
         ) : tab === "talent" ? (
           /* ── Talent Pool filter bar ── */
           <div style={{ display:"flex", alignItems:"center", gap:5, padding:"8px 20px", borderBottom:"1px solid #EBEBED", flexWrap:"wrap" }}>
-            {["all",...Object.keys(candidateTierCounts)].map(t => (
-              <button key={t} onClick={() => setTalentTierFilter(t)} style={{
-                padding:"4px 10px", borderRadius:4, fontSize:12, fontWeight:500, cursor:"pointer",
-                border: talentTierFilter===t ? "1.5px solid #1A1A1A" : "1px solid #EBEBED",
-                background: talentTierFilter===t ? "#1A1A1A" : "#fff",
-                color: talentTierFilter===t ? "#fff" : "#6B6F76", fontFamily:"inherit",
-              }}>
-                {t==="all" ? `All ${allCandidatesList.length}` : `${CAND_TIER[t]?.label||t} ${candidateTierCounts[t]}`}
-              </button>
-            ))}
             <div style={{ flex:1 }} />
             <div style={{ position:"relative" }}>
               <span style={{ position:"absolute", left:9, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"#A0A3A9" }}>⌕</span>

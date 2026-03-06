@@ -9,3 +9,4 @@ candidates_*.csv
 supabase/.temp/
 node_modules/
 dist/
+.vercel
