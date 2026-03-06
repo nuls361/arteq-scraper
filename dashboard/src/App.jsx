@@ -2078,8 +2078,8 @@ export default function ALineCRM() {
         {tab === "agencies" ? (
           /* ── Agencies filter bar ── */
           <div style={{ display:"flex", alignItems:"center", gap:5, padding:"8px 20px", borderBottom:"1px solid #EBEBED", flexWrap:"wrap" }}>
-            {["all","enriched","pending","competitor"].map(s => {
-              const cnt = s === "all" ? agencies.length : s === "competitor" ? agencies.filter(a => a.is_direct_competitor).length : agencies.filter(a => a.enrichment_status === s).length;
+            {["all","enriched","pending"].map(s => {
+              const cnt = s === "all" ? agencies.length : agencies.filter(a => a.enrichment_status === s).length;
               return (
                 <button key={s} onClick={() => setAgencyFilter(s)} style={{
                   padding:"4px 10px", borderRadius:4, fontSize:12, fontWeight:500, cursor:"pointer",
@@ -2215,7 +2215,6 @@ export default function ALineCRM() {
           ) : tab === "agencies" ? (
             (() => {
               const filteredAgencies = agencies.filter(a => {
-                if (agencyFilter === "competitor") return a.is_direct_competitor;
                 if (agencyFilter !== "all" && a.enrichment_status !== agencyFilter) return false;
                 if (search && !`${a.name} ${a.domain} ${a.hq_city||""}`.toLowerCase().includes(search.toLowerCase())) return false;
                 return true;
@@ -2230,13 +2229,12 @@ export default function ALineCRM() {
                 <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
                   <thead>
                     <tr>
-                      <ColHead width="14.3%">Agency</ColHead>
-                      <ColHead width="14.3%">Status</ColHead>
-                      <ColHead width="14.3%">Quality</ColHead>
-                      <ColHead width="14.3%">Headcount</ColHead>
-                      <ColHead width="14.3%">Location</ColHead>
-                      <ColHead width="14.3%">Outreach</ColHead>
-                      <ColHead width="14.3%">Added</ColHead>
+                      <ColHead width="16.6%">Agency</ColHead>
+                      <ColHead width="16.6%">Status</ColHead>
+                      <ColHead width="16.6%">Headcount</ColHead>
+                      <ColHead width="16.6%">Location</ColHead>
+                      <ColHead width="16.6%">Outreach</ColHead>
+                      <ColHead width="16.6%">Added</ColHead>
                     </tr>
                   </thead>
                   <tbody>
@@ -2256,16 +2254,7 @@ export default function ALineCRM() {
                           <div style={{ fontWeight:600, fontSize:13 }}>{a.name}</div>
                         </td>
                         <td style={{ padding:"9px 14px" }}>
-                          {a.is_direct_competitor ? (
-                            <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:600, background:"#FDECEC", color:"#C13030" }}>Competitor</span>
-                          ) : (
-                            <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background: a.enrichment_status==="enriched"?"#D1FAE5":"#FEF3C7", color: a.enrichment_status==="enriched"?"#065F46":"#92400E" }}>{a.enrichment_status || "pending"}</span>
-                          )}
-                        </td>
-                        <td style={{ padding:"9px 14px", textAlign:"center" }}>
-                          {a.quality_score != null ? (
-                            <span style={{ fontWeight:700, fontSize:13, color: a.quality_score >= 8 ? "#065F46" : a.quality_score >= 5 ? "#AD5700" : "#A0A3A9" }}>{a.quality_score}</span>
-                          ) : <span style={{ color:"#A0A3A9" }}>—</span>}
+                          <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background: a.enrichment_status==="enriched"?"#D1FAE5":"#FEF3C7", color: a.enrichment_status==="enriched"?"#065F46":"#92400E" }}>{a.enrichment_status || "pending"}</span>
                         </td>
                         <td style={{ padding:"9px 14px", fontSize:12, color:"#6B6F76" }}>{a.headcount || "—"}</td>
                         <td style={{ padding:"9px 14px", fontSize:12, color:"#6B6F76" }}>{[a.hq_city, a.hq_country].filter(Boolean).join(", ") || "—"}</td>
