@@ -372,6 +372,68 @@ def sourcing_brief_to_html(brief):
 
 
 # ═══════════════════════════════════════════════════════════
+# CONTACT CREATION
+# ═══════════════════════════════════════════════════════════
+
+def upsert_dm_contact(name, title, linkedin_url, company_id):
+    """Create or update a contact record for the hiring manager and link to company."""
+    if not name or not company_id:
+        return None
+
+    # Check existing by linkedin_url or name
+    existing = None
+    if linkedin_url:
+        existing = supabase_request("GET", "contact", params={
+            "linkedin_url": f"eq.{linkedin_url}",
+            "select": "id",
+            "limit": "1",
+        })
+    if not existing:
+        existing = supabase_request("GET", "contact", params={
+            "name": f"eq.{name}",
+            "select": "id",
+            "limit": "1",
+        })
+
+    if existing and len(existing) > 0:
+        contact_id = existing[0]["id"]
+        update = {k: v for k, v in {
+            "title": title,
+            "linkedin_url": linkedin_url,
+        }.items() if v}
+        if update:
+            supabase_request("PATCH", f"contact?id=eq.{contact_id}", data=update)
+    else:
+        result = supabase_request("POST", "contact", data={
+            "name": name,
+            "title": title or "",
+            "linkedin_url": linkedin_url or "",
+            "enrichment_status": "pending",
+        })
+        if result and len(result) > 0:
+            contact_id = result[0]["id"]
+        else:
+            return None
+
+    # Link to company via company_contact
+    existing_link = supabase_request("GET", "company_contact", params={
+        "company_id": f"eq.{company_id}",
+        "contact_id": f"eq.{contact_id}",
+        "select": "id",
+        "limit": "1",
+    })
+    if not existing_link:
+        supabase_request("POST", "company_contact", data={
+            "company_id": company_id,
+            "contact_id": contact_id,
+            "role_at_company": title or "",
+            "is_decision_maker": True,
+        })
+
+    return contact_id
+
+
+# ═══════════════════════════════════════════════════════════
 # MAIN ENRICHMENT FLOW
 # ═══════════════════════════════════════════════════════════
 
@@ -420,9 +482,16 @@ def enrich_role(role, company):
         if dm_result.get("confidence_reason"):
             dm_html += f'<p><strong>Reason:</strong> {dm_result["confidence_reason"]}</p>'
 
+        # Create real contact record for the hiring manager
+        contact_id = None
+        if dm_name and dm_name != "Not found":
+            contact_id = upsert_dm_contact(dm_name, dm_title,
+                dm_result.get("decision_maker_linkedin"), role.get("company_id"))
+
         supabase_request("POST", "company_dossier", data={
             "company_id": role.get("company_id"),
             "role_id": role_id,
+            "contact_id": contact_id,
             "entry_type": "role_dm_research",
             "title": f"Decision Maker: {dm_name} — {confidence} confidence",
             "content": dm_html,
@@ -430,7 +499,7 @@ def enrich_role(role, company):
             "author": "A-Line Agent",
         })
 
-        logger.info(f"  DM found: {dm_name} ({dm_title}) [{confidence}]")
+        logger.info(f"  DM found: {dm_name} ({dm_title}) [{confidence}]{' → contact created' if contact_id else ''}")
     else:
         logger.info("  DM research: no result")
 
