@@ -1021,25 +1021,26 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
               <div style={{ display:"grid", gridTemplateColumns:"100px 1fr", gap:"8px 12px", fontSize:12 }}>
                 {[
                   ["Tier", null],
-                  ["Score", role.final_score ?? role.rule_score ?? "—"],
-                  ["AI Score", role.ai_score ?? "—"],
+                  ["Score", role.final_score ?? role.qualification_score ?? role.rule_score ?? "—"],
                   ["Type", null],
                   ["Source", null],
                   ["Location", role.location || "—"],
                   ["Remote", role.is_remote ? "Yes" : "No"],
                   ["Status", role.status || "—"],
                   ["Posted", role.posted_at ? new Date(role.posted_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : "—"],
-                  ["DM Guess", role.decision_maker_guess || "—"],
-                  ["Stage Guess", role.company_stage_guess || "—"],
+                  ["Job Posting", null],
                 ].map(([label, value]) => {
                   let rendered = value || "—";
-                  if (label === "Tier") rendered = <TierPill tier={role.tier} />;
-                  else if (label === "Type") rendered = <EngPill type={role.engagement_type} />;
-                  else if (label === "Source") rendered = <SourcePill source={role.source} />;
+                  if (label === "Tier") rendered = role.tier || "—";
+                  else if (label === "Type") rendered = role.engagement_type || "—";
+                  else if (label === "Source") rendered = role.source || "—";
+                  else if (label === "Job Posting") rendered = role.source_url
+                    ? <a href={role.source_url} target="_blank" rel="noopener" style={{ color:"#0A66C2", textDecoration:"none", fontSize:12 }}>View posting ↗</a>
+                    : "—";
                   return (
                     <div key={label} style={{ display:"contents" }}>
                       <div style={{ color:"#A0A3A9", fontSize:12 }}>{label}</div>
-                      <div style={{ color:"#1A1A1A" }}>{rendered}</div>
+                      <div style={{ color:"#1A1A1A", fontSize:12 }}>{rendered}</div>
                     </div>
                   );
                 })}

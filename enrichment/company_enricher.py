@@ -73,6 +73,8 @@ def supabase_request(method, table, data=None, params=None, upsert=False):
             resp = requests.post(url, headers=headers, json=data, timeout=15)
         elif method == "PATCH":
             resp = requests.patch(url, headers=headers, json=data, params=params, timeout=15)
+        elif method == "DELETE":
+            resp = requests.delete(url, headers=headers, params=params, timeout=15)
         else:
             return None
 
@@ -553,6 +555,10 @@ Kriterien:
                 if (old_status == "lead" and new_status in ("prospect", "active")) or \
                    (old_status == "prospect" and new_status == "active"):
                     enrichment_data["status"] = new_status
+
+            # Remove previous enrichment dossier (avoid duplicates on re-runs)
+            supabase_request("DELETE", "company_dossier",
+                params={"company_id": f"eq.{company_id}", "source": "eq.company_enricher"})
 
             # Write dossier
             supabase_request("POST", "company_dossier", data={
