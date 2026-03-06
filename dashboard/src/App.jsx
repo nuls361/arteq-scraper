@@ -1813,18 +1813,18 @@ export default function ALineCRM() {
                 <div style={{ fontSize:12, marginTop:4 }}>Run the scraper to populate records.</div>
               </div>
             ) : (
-              <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
                 <thead>
                   <tr>
-                    <ColHead width={80} sk="tier" sort={sort} onSort={doSort}>Tier</ColHead>
-                    <ColHead width={54} align="center" sk="final_score" sort={sort} onSort={doSort}>Score</ColHead>
-                    <ColHead width={170} sk="company_id" sort={sort} onSort={doSort}>Company</ColHead>
-                    <ColHead sk="title" sort={sort} onSort={doSort}>Title</ColHead>
-                    <ColHead width={140}>Location</ColHead>
-                    <ColHead width={85}>Source</ColHead>
-                    <ColHead width={160}>Decision Maker</ColHead>
-                    <ColHead width={95}>Type</ColHead>
-                    <ColHead width={80} sk="posted_at" sort={sort} onSort={doSort}>Posted</ColHead>
+                    <ColHead width="11.1%" sk="tier" sort={sort} onSort={doSort}>Tier</ColHead>
+                    <ColHead width="11.1%" align="center" sk="final_score" sort={sort} onSort={doSort}>Score</ColHead>
+                    <ColHead width="11.1%" sk="company_id" sort={sort} onSort={doSort}>Company</ColHead>
+                    <ColHead width="11.1%" sk="title" sort={sort} onSort={doSort}>Title</ColHead>
+                    <ColHead width="11.1%">Location</ColHead>
+                    <ColHead width="11.1%">Source</ColHead>
+                    <ColHead width="11.1%">Decision Maker</ColHead>
+                    <ColHead width="11.1%">Type</ColHead>
+                    <ColHead width="11.1%" sk="posted_at" sort={sort} onSort={doSort}>Posted</ColHead>
                   </tr>
                 </thead>
                 <tbody>
@@ -1836,15 +1836,15 @@ export default function ALineCRM() {
                         onMouseLeave={e => e.currentTarget.style.background="transparent"}>
                         <td style={{ padding:"9px 14px" }}><TierPill tier={r.tier} /></td>
                         <td style={{ padding:"9px 14px", textAlign:"center" }}><Score v={r.final_score??r.rule_score} /></td>
-                        <td style={{ padding:"9px 14px" }}>
-                          <div style={{ fontWeight:600, fontSize:13 }}>{co?.name||"—"}</div>
+                        <td style={{ padding:"9px 14px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                          <div style={{ fontWeight:600, fontSize:13, overflow:"hidden", textOverflow:"ellipsis" }}>{co?.name||"—"}</div>
                           {co?.is_agency && <span style={{ fontSize:10, color:"#E5484D", fontWeight:500 }}>Agency</span>}
                         </td>
-                        <td style={{ padding:"9px 14px" }}>
-                          <div style={{ fontWeight:500 }}>{cleanTitle(r.title)}</div>
-                          {r.requirements_summary && <div style={{ fontSize:11, color:"#A0A3A9", lineHeight:1.3, maxWidth:300, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.requirements_summary}</div>}
+                        <td style={{ padding:"9px 14px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                          <div style={{ fontWeight:500, overflow:"hidden", textOverflow:"ellipsis" }}>{cleanTitle(r.title)}</div>
+                          {r.requirements_summary && <div style={{ fontSize:11, color:"#A0A3A9", lineHeight:1.3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.requirements_summary}</div>}
                         </td>
-                        <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12 }}>{cleanLocation(r.location)}</td>
+                        <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cleanLocation(r.location)}</td>
                         <td style={{ padding:"9px 14px" }}><SourcePill source={r.source} /></td>
                         <td style={{ padding:"9px 14px" }}>
                           {(() => {
@@ -1876,17 +1876,17 @@ export default function ALineCRM() {
                 <div style={{ fontSize:12, marginTop:4 }}>Contacts appear when companies are enriched.</div>
               </div>
             ) : (
-              <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
                 <thead>
                   <tr>
-                    <ColHead sk="name" sort={sort} onSort={doSort}>Name</ColHead>
-                    <ColHead width={160}>Title</ColHead>
-                    <ColHead width={150} sk="company_name" sort={sort} onSort={doSort}>Company</ColHead>
-                    <ColHead width={180}>Email</ColHead>
-                    <ColHead width={110}>Phone</ColHead>
-                    <ColHead width={70}>LinkedIn</ColHead>
-                    <ColHead width={85}>Source</ColHead>
-                    <ColHead width={80} sk="created_at" sort={sort} onSort={doSort}>Added</ColHead>
+                    <ColHead width="12.5%" sk="name" sort={sort} onSort={doSort}>Name</ColHead>
+                    <ColHead width="12.5%">Title</ColHead>
+                    <ColHead width="12.5%" sk="company_name" sort={sort} onSort={doSort}>Company</ColHead>
+                    <ColHead width="12.5%">Email</ColHead>
+                    <ColHead width="12.5%">Phone</ColHead>
+                    <ColHead width="12.5%">LinkedIn</ColHead>
+                    <ColHead width="12.5%">Source</ColHead>
+                    <ColHead width="12.5%" sk="created_at" sort={sort} onSort={doSort}>Added</ColHead>
                   </tr>
                 </thead>
                 <tbody>
@@ -1904,14 +1904,14 @@ export default function ALineCRM() {
                             <span style={{ fontWeight:600, fontSize:13 }}>{p.name || "—"}</span>
                           </div>
                         </td>
-                        <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12 }}>{p.role_at_company || p.title || "—"}</td>
-                        <td style={{ padding:"9px 14px" }}>
+                        <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.role_at_company || p.title || "—"}</td>
+                        <td style={{ padding:"9px 14px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                           <span style={{ fontWeight:500, fontSize:12 }}>{co?.name || "—"}</span>
                         </td>
-                        <td style={{ padding:"9px 14px" }}>
+                        <td style={{ padding:"9px 14px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                           {p.email ? <a href={`mailto:${p.email}`} onClick={e=>e.stopPropagation()} style={{ fontSize:12, color:"#5B5FC7", textDecoration:"none" }}>{p.email}</a> : <span style={{ color:"#A0A3A9", fontSize:12 }}>—</span>}
                         </td>
-                        <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12 }}>{p.phone || "—"}</td>
+                        <td style={{ padding:"9px 14px", color:"#6B6F76", fontSize:12, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.phone || "—"}</td>
                         <td style={{ padding:"9px 14px" }}>
                           {p.linkedin_url ? <a href={p.linkedin_url} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{ padding:"3px 8px", borderRadius:4, background:"#0A66C2", color:"#fff", fontSize:10, fontWeight:600, textDecoration:"none" }}>LinkedIn</a> : <span style={{ color:"#A0A3A9", fontSize:12 }}>—</span>}
                         </td>
@@ -1943,16 +1943,18 @@ export default function ALineCRM() {
                 <div style={{ display:"flex", flex:1, minHeight:0 }}>
                   {/* Agency list */}
                   <div style={{ flex: selectedAgency ? 2 : 1, overflow:"auto", borderRight: selectedAgency ? "1px solid #EBEBED" : "none" }}>
-                    <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                    <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
                       <thead>
                         <tr>
-                          <ColHead>Agency</ColHead>
-                          <ColHead width={80}>Status</ColHead>
-                          <ColHead width={80}>Quality</ColHead>
-                          <ColHead width={90}>Headcount</ColHead>
-                          {!selectedAgency && <ColHead width={120}>Location</ColHead>}
-                          <ColHead width={90}>Outreach</ColHead>
-                          {!selectedAgency && <ColHead width={80}>Added</ColHead>}
+                          {(() => { const pct = selectedAgency ? "20%" : "14.3%"; return <>
+                          <ColHead width={pct}>Agency</ColHead>
+                          <ColHead width={pct}>Status</ColHead>
+                          <ColHead width={pct}>Quality</ColHead>
+                          <ColHead width={pct}>Headcount</ColHead>
+                          {!selectedAgency && <ColHead width={pct}>Location</ColHead>}
+                          <ColHead width={pct}>Outreach</ColHead>
+                          {!selectedAgency && <ColHead width={pct}>Added</ColHead>}
+                          </>; })()}
                         </tr>
                       </thead>
                       <tbody>
@@ -2200,16 +2202,16 @@ export default function ALineCRM() {
                   <div style={{ fontSize:12, marginTop:4 }}>Run the research agent to generate candidate matches.</div>
                 </div>
               ) : (
-                <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
                   <thead>
                     <tr>
-                      <ColHead width={180}>Role</ColHead>
-                      <ColHead width={170}>Candidate</ColHead>
-                      <ColHead width={70} align="center">Score</ColHead>
-                      <ColHead width={90}>Status</ColHead>
-                      <ColHead width={80}>Function</ColHead>
-                      <ColHead width={80}>Location</ColHead>
-                      <ColHead width={90}>Created</ColHead>
+                      <ColHead width="14.3%">Role</ColHead>
+                      <ColHead width="14.3%">Candidate</ColHead>
+                      <ColHead width="14.3%" align="center">Score</ColHead>
+                      <ColHead width="14.3%">Status</ColHead>
+                      <ColHead width="14.3%">Function</ColHead>
+                      <ColHead width="14.3%">Location</ColHead>
+                      <ColHead width="14.3%">Created</ColHead>
                     </tr>
                   </thead>
                   <tbody>
@@ -2225,13 +2227,13 @@ export default function ALineCRM() {
                         }} style={{ cursor:"pointer", borderBottom:"1px solid #F7F7F8" }}
                           onMouseEnter={e => e.currentTarget.style.background="#F7F7F8"}
                           onMouseLeave={e => e.currentTarget.style.background="transparent"}>
-                          <td style={{ padding:"9px 14px" }}>
-                            <div style={{ fontWeight:600, fontSize:12 }}>{cleanTitle(role.title) || "—"}</div>
-                            <div style={{ fontSize:10, color:"#A0A3A9" }}>{co.name || "—"}</div>
+                          <td style={{ padding:"9px 14px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                            <div style={{ fontWeight:600, fontSize:12, overflow:"hidden", textOverflow:"ellipsis" }}>{cleanTitle(role.title) || "—"}</div>
+                            <div style={{ fontSize:10, color:"#A0A3A9", overflow:"hidden", textOverflow:"ellipsis" }}>{co.name || "—"}</div>
                           </td>
-                          <td style={{ padding:"9px 14px" }}>
-                            <div style={{ fontWeight:600, fontSize:12 }}>{cand.full_name || "—"}</div>
-                            <div style={{ fontSize:10, color:"#A0A3A9" }}>{cand.current_title || "—"}</div>
+                          <td style={{ padding:"9px 14px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                            <div style={{ fontWeight:600, fontSize:12, overflow:"hidden", textOverflow:"ellipsis" }}>{cand.full_name || "—"}</div>
+                            <div style={{ fontSize:10, color:"#A0A3A9", overflow:"hidden", textOverflow:"ellipsis" }}>{cand.current_title || "—"}</div>
                           </td>
                           <td style={{ padding:"9px 14px", textAlign:"center" }}><MatchScorePill score={match.match_score} /></td>
                           <td style={{ padding:"9px 14px" }}><MatchStatusPill status={match.status} /></td>
