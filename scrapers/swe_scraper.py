@@ -99,13 +99,45 @@ SWE_JSEARCH_QUERIES = [
 ]
 
 SWE_ARBEITNOW_KEYWORDS = [
-    "software engineer", "software developer", "backend developer",
-    "frontend developer", "full stack", "fullstack",
+    # English titles
+    "software engineer", "software developer", "software architect",
+    "backend developer", "backend engineer",
+    "frontend developer", "frontend engineer",
+    "full stack", "fullstack", "full-stack",
+    "web developer", "web engineer",
+    "mobile developer", "mobile engineer",
+    "ios developer", "android developer",
+    "cloud engineer", "cloud architect",
+    "devops engineer", "devops", "site reliability", "sre",
+    "platform engineer", "infrastructure engineer",
+    "data engineer", "data platform",
+    "ml engineer", "machine learning engineer", "ai engineer",
+    "embedded engineer", "embedded developer", "embedded software",
+    "systems engineer", "systems developer",
+    "security engineer", "appsec",
+    "qa engineer", "test engineer", "sdet", "quality engineer",
+    "release engineer", "build engineer",
+    "developer", "engineer", "programmer", "coder",
+    "senior developer", "senior engineer", "lead developer", "lead engineer",
+    "staff engineer", "principal engineer",
+    # Language/framework-specific
+    "python developer", "python engineer",
+    "java developer", "java engineer",
+    "typescript developer", "javascript developer",
+    ".net developer", "c# developer", "c++ developer",
+    "golang developer", "go developer", "rust developer",
+    "ruby developer", "rails developer",
+    "php developer", "laravel developer",
+    "react developer", "angular developer", "vue developer",
+    "node developer", "nodejs",
+    "kotlin developer", "swift developer", "flutter developer",
+    # German titles
     "softwareentwickler", "softwareentwicklung",
-    "senior developer", "senior engineer", "lead developer",
-    "python developer", "java developer", "typescript developer",
-    ".net developer", "devops engineer", "platform engineer",
-    "backend engineer", "frontend engineer",
+    "webentwickler", "webentwicklung",
+    "entwickler", "programmierer",
+    "systemingenieur", "informatiker",
+    "it-entwickler", "anwendungsentwickler",
+    "fachinformatiker",
 ]
 
 # ── City Filters ──
@@ -311,7 +343,7 @@ def scrape_arbeitnow():
     """Arbeitnow Free API — DACH startup jobs from ATS systems."""
     jobs = []
     page = 1
-    max_pages = 5
+    max_pages = 50
     seen_slugs = set()
 
     session = requests.Session()
