@@ -157,6 +157,20 @@ function fileIcon(mimeType) {
   return "📎";
 }
 
+function cleanTitle(title) {
+  if (!title) return "—";
+  // Remove common prefixes/suffixes that duplicate role detail fields
+  return title
+    .replace(/^(Vollzeit|Teilzeit|Full[\s-]?time|Part[\s-]?time)\s*[-–—:]\s*/i, "")
+    .replace(/\s*[-–—]\s*(100%\s*remote[-\s]?first|remote|hybrid|on[\s-]?site|startup|scale[\s-]?up)\s*/gi, " ")
+    .replace(/\s*[-–—]\s*(m\/w\/d|m\/f\/d|d\/f\/m|all genders|gn)\s*/gi, "")
+    .replace(/\s*\(m\/w\/d\)\s*/gi, "")
+    .replace(/\s*\(all genders\)\s*/gi, "")
+    .replace(/\s*\(f\/m\/d\)\s*/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 const ENTRY_TYPE = {
   signal:       { label: "Signal",       icon: "⚡", bg: "#FDECEC", color: "#C13030" },
   news:         { label: "News",         icon: "📰", bg: "#DBEAFE", color: "#1D4ED8" },
@@ -526,7 +540,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
           </>
         ) : role ? (
           <>
-            <div style={{ fontSize:15, fontWeight:700, color:"#1A1A1A" }}>{role.title}</div>
+            <div style={{ fontSize:15, fontWeight:700, color:"#1A1A1A" }}>{cleanTitle(role.title)}</div>
             <span style={{ fontSize:12, color:"#A0A3A9" }}>at</span>
             <span onClick={() => onOpenCompany && onOpenCompany(company)} style={{ fontSize:13, fontWeight:600, color:"#5B5FC7", cursor:"pointer" }}>{company.name} ↗</span>
             <TierPill tier={role.tier} />
@@ -550,10 +564,9 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
           {/* Sub-nav tabs */}
           <div style={{ display:"flex", gap:0, borderBottom:"1px solid #EBEBED", padding:"0 24px", flexShrink:0 }}>
             {[
-              { key:"activity", label:"Activity", count:timelineItems.length },
+              { key:"activity", label:"Dossier", count:timelineItems.length },
               { key:"contacts", label:"Contacts", count:contacts.length },
-              { key:"roles", label:"Roles", count:companyRoles.length },
-              { key:"notes", label:"Notes", count:null },
+              { key:"candidates", label:"Candidates", count:0 },
             ].map(t => {
               const active = detailTab === t.key;
               return (
@@ -817,119 +830,14 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
               </div>
             )}
 
-            {/* ── Roles Tab ── */}
-            {detailTab === "roles" && (
-              <div>
-                <div style={{ fontSize:13, fontWeight:600, color:"#1A1A1A", marginBottom:16 }}>
-                  {companyRoles.length} {companyRoles.length === 1 ? "role" : "roles"} at {company.name}
-                </div>
-                {companyRoles.length === 0 ? (
-                  <div style={{ padding:40, textAlign:"center", color:"#A0A3A9" }}>
-                    <div style={{ fontSize:22, marginBottom:6 }}>⊙</div>
-                    <div style={{ fontSize:13, fontWeight:500 }}>No roles yet</div>
-                  </div>
-                ) : (
-                  <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                    {companyRoles.map(r => (
-                      <div key={r.id} onClick={() => onOpenRole && onOpenRole(r)} style={{
-                        display:"flex", alignItems:"center", gap:12, padding:"12px 14px",
-                        background:"#F7F7F8", borderRadius:10, cursor:"pointer",
-                      }}
-                        onMouseEnter={e => e.currentTarget.style.background="#EBEBED"}
-                        onMouseLeave={e => e.currentTarget.style.background="#F7F7F8"}>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-                            <TierPill tier={r.tier} />
-                            <span style={{ fontSize:13, fontWeight:600, color:"#1A1A1A" }}>{r.title}</span>
-                            <span style={{ flex:1 }} />
-                            <Score v={r.final_score ?? r.rule_score} />
-                          </div>
-                          <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
-                            <EngPill type={r.engagement_type} />
-                            {r.location && <span style={{ fontSize:11, color:"#6B6F76" }}>{r.location}</span>}
-                            {r.posted_at && <span style={{ fontSize:11, color:"#A0A3A9" }}>{new Date(r.posted_at).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</span>}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+            {/* ── Candidates Tab ── */}
+            {detailTab === "candidates" && (
+              <div style={{ padding:40, textAlign:"center", color:"#A0A3A9" }}>
+                <div style={{ fontSize:22, marginBottom:6 }}>⊙</div>
+                <div style={{ fontSize:13, fontWeight:500 }}>Candidate matching coming soon</div>
               </div>
             )}
 
-            {/* ── Notes Tab ── */}
-            {detailTab === "notes" && (
-              <div>
-                <div style={{ display:"flex", gap:6, marginBottom:12 }}>
-                  {["meeting_note", "note"].map(t => {
-                    const et = ENTRY_TYPE[t];
-                    const active = noteType === t;
-                    return (
-                      <button key={t} onClick={() => setNoteType(t)} style={{
-                        padding:"6px 14px", borderRadius:6, fontSize:12, fontWeight:500, cursor:"pointer",
-                        border: active ? "1.5px solid #1A1A1A" : "1px solid #EBEBED",
-                        background: active ? "#1A1A1A" : "#fff",
-                        color: active ? "#fff" : "#6B6F76",
-                        fontFamily:"inherit",
-                      }}>{et.icon} {et.label}</button>
-                    );
-                  })}
-                </div>
-                <input
-                  value={noteTitle}
-                  onChange={e => setNoteTitle(e.target.value)}
-                  placeholder="Title (optional)"
-                  style={{
-                    width:"100%", padding:"9px 12px", borderRadius:6, border:"1px solid #EBEBED",
-                    fontSize:12, fontFamily:"inherit", outline:"none", color:"#1A1A1A",
-                    marginBottom:8, boxSizing:"border-box",
-                  }}
-                />
-                <textarea
-                  value={noteContent}
-                  onChange={e => setNoteContent(e.target.value)}
-                  placeholder={noteType === "meeting_note" ? "Meeting notes — what was discussed, action items, key takeaways…" : "General note about this company…"}
-                  rows={5}
-                  style={{
-                    width:"100%", padding:"9px 12px", borderRadius:6, border:"1px solid #EBEBED",
-                    fontSize:12, fontFamily:"inherit", outline:"none", color:"#1A1A1A",
-                    resize:"vertical", lineHeight:1.5, boxSizing:"border-box",
-                  }}
-                />
-                <div style={{ display:"flex", gap:8, marginTop:8 }}>
-                  <button
-                    onClick={handleAddNote}
-                    disabled={saving || !noteContent.trim()}
-                    style={{
-                      padding:"7px 18px", borderRadius:6,
-                      background: noteContent.trim() ? "#1A1A1A" : "#EBEBED",
-                      color: noteContent.trim() ? "#fff" : "#A0A3A9",
-                      border:"none", fontSize:12, fontWeight:600, cursor: noteContent.trim() ? "pointer" : "default",
-                      fontFamily:"inherit",
-                    }}
-                  >{saving ? "Saving…" : "Add to Dossier"}</button>
-
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    onChange={handleFileUpload}
-                    style={{ display: "none" }}
-                    accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.png,.jpg,.jpeg,.gif,.svg,.zip"
-                  />
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploading}
-                    style={{
-                      padding:"7px 18px", borderRadius:6,
-                      background:"#fff", color:"#6B6F76",
-                      border:"1px solid #EBEBED", fontSize:12, fontWeight:600,
-                      cursor: uploading ? "default" : "pointer",
-                      fontFamily:"inherit",
-                    }}
-                  >{uploading ? "Uploading…" : "📎 Upload File"}</button>
-                </div>
-              </div>
-            )}
 
           </div>
         </div>
