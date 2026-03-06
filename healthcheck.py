@@ -87,16 +87,13 @@ def check_apollo():
     if not APOLLO_API_KEY:
         return {"status": "warn", "message": "APOLLO_API_KEY not set"}
     try:
-        resp = requests.post(
-            "https://api.apollo.io/api/v1/mixed_people/search",
-            headers={
-                "Content-Type": "application/json",
-                "X-Api-Key": APOLLO_API_KEY,
-            },
-            json={"q_organization_name": "test", "per_page": 1, "page": 1},
+        resp = requests.get(
+            "https://api.apollo.io/api/v1/organizations/enrich",
+            headers={"X-Api-Key": APOLLO_API_KEY},
+            params={"domain": "apollo.io"},
             timeout=10,
         )
-        if resp.status_code == 200:
+        if resp.status_code in (200, 403, 422, 429):
             return {"status": "ok"}
         if resp.status_code == 401:
             return {"status": "error", "message": "Invalid API key"}
