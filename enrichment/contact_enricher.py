@@ -360,15 +360,45 @@ def enrich_contact(contact, company):
     update_data["enrichment_status"] = "complete"
     supabase_request("PATCH", f"contact?id=eq.{contact_id}", data=update_data)
 
-    # Write personal hooks to dossier
-    if hooks and company.get("id"):
-        hooks_text = "\n".join(f"- {h}" for h in hooks)
+    # Write contact intel to contact's own dossier thread
+    if dm_score is not None:
+        intel_parts = [f"<h3>Contact Intel: {contact_name}</h3>"]
+        intel_parts.append(f"<p><strong>DM Score:</strong> {dm_score}/100</p>")
+        intel_parts.append(f"<p><strong>Title:</strong> {contact.get('title', '—')}</p>")
+        if contact.get("career_history"):
+            intel_parts.append("<h4>Career History</h4><ul>")
+            for job in (contact["career_history"] if isinstance(contact["career_history"], list) else []):
+                intel_parts.append(f"<li>{job.get('title', '?')} at {job.get('company', '?')}</li>")
+            intel_parts.append("</ul>")
+        if contact.get("thought_leadership"):
+            items = contact["thought_leadership"] if isinstance(contact["thought_leadership"], list) else []
+            if items:
+                intel_parts.append("<h4>Thought Leadership</h4><ul>")
+                for item in items:
+                    intel_parts.append(f"<li><a href=\"{item.get('url', '#')}\">{item.get('title', '?')}</a></li>")
+                intel_parts.append("</ul>")
+
         supabase_request("POST", "company_dossier", data={
-            "company_id": company["id"],
+            "contact_id": contact_id,
+            "company_id": company.get("id"),
             "entry_type": "contact_intel",
-            "title": f"Contact Intel: {contact_name}",
-            "content": f"DM Score: {dm_score}/100\n\nPersonal Hooks:\n{hooks_text}",
+            "title": f"Contact Intel: {contact_name} — DM Score {dm_score}/100",
+            "content": "\n".join(intel_parts),
             "source": "contact_enricher",
+            "author": "A-Line Agent",
+        })
+
+    # Write personal hooks separately
+    if hooks:
+        hooks_text = "\n".join(f"<li>{h}</li>" for h in hooks)
+        supabase_request("POST", "company_dossier", data={
+            "contact_id": contact_id,
+            "company_id": company.get("id"),
+            "entry_type": "personal_hooks",
+            "title": f"Personal Hooks: {contact_name}",
+            "content": f"<h3>Personal Hooks</h3><p><strong>DM Score:</strong> {dm_score}/100</p><ul>{hooks_text}</ul>",
+            "source": "contact_enricher",
+            "author": "A-Line Agent",
         })
 
     return True

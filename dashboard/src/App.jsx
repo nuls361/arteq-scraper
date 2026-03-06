@@ -200,10 +200,15 @@ const ENTRY_TYPE = {
   meeting_note: { label: "Meeting Note", icon: "🤝", bg: "#EDE9FE", color: "#6D28D9" },
   note:         { label: "Note",         icon: "📝", bg: "#FFF0E1", color: "#AD5700" },
   file:         { label: "File",         icon: "📎", bg: "#F0FDF4", color: "#15803D" },
-  agent_action:     { label: "Agent",          icon: "🤖", bg: "#EDE9FE", color: "#6D28D9" },
-  outreach:         { label: "Outreach",       icon: "📨", bg: "#DBEAFE", color: "#1D4ED8" },
-  role_analysis:    { label: "Role Analysis",  icon: "📋", bg: "#D1FAE5", color: "#065F46" },
-  role_dm_research: { label: "Hiring Manager", icon: "🎯", bg: "#FEF3C7", color: "#92400E" },
+  agent_action:      { label: "Agent",            icon: "🤖", bg: "#EDE9FE", color: "#6D28D9" },
+  outreach:          { label: "Outreach",         icon: "📨", bg: "#DBEAFE", color: "#1D4ED8" },
+  role_analysis:     { label: "Role Analysis",    icon: "📋", bg: "#D1FAE5", color: "#065F46" },
+  role_dm_research:  { label: "Hiring Manager",   icon: "🎯", bg: "#FEF3C7", color: "#92400E" },
+  contact_intel:     { label: "Contact Intel",    icon: "🧠", bg: "#DBEAFE", color: "#1D4ED8" },
+  personal_hooks:    { label: "Personal Hooks",   icon: "🎣", bg: "#FEF3C7", color: "#92400E" },
+  company_analysis:  { label: "Company Analysis", icon: "🏢", bg: "#D1FAE5", color: "#065F46" },
+  funding_event:     { label: "Funding",          icon: "💰", bg: "#FFF0E1", color: "#AD5700" },
+  outreach_history:  { label: "Outreach History", icon: "📬", bg: "#DBEAFE", color: "#1D4ED8" },
 };
 
 function OutreachThread({ thread, contacts: threadContacts }) {
@@ -298,19 +303,29 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
     setLoading(true);
     try {
       const roleId = role?.id || (person?._isHiringManager && person?._roleId);
+      const contactId = person && !person._isHiringManager ? person.id : null;
+      const fetches = [];
+
+      // Always fetch company-level entries (where role_id and contact_id are null)
+      fetches.push(supaFetch("company_dossier", `company_id=eq.${company.id}&role_id=is.null&contact_id=is.null&order=created_at.desc&limit=200`));
+
+      // Role-specific entries (when viewing a role or HM person)
       if (roleId) {
-        // Fetch both role-specific AND company-level dossier entries
-        const [roleData, companyData] = await Promise.all([
-          supaFetch("company_dossier", `role_id=eq.${roleId}&order=created_at.desc&limit=200`),
-          supaFetch("company_dossier", `company_id=eq.${company.id}&role_id=is.null&order=created_at.desc&limit=200`),
-        ]);
-        const merged = [...(roleData || []), ...(companyData || [])];
-        merged.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-        setEntries(merged);
-      } else {
-        const data = await supaFetch("company_dossier", `company_id=eq.${company.id}&order=created_at.desc&limit=200`);
-        setEntries(data || []);
+        fetches.push(supaFetch("company_dossier", `role_id=eq.${roleId}&order=created_at.desc&limit=200`));
       }
+
+      // Contact-specific entries (when viewing a regular contact person)
+      if (contactId) {
+        fetches.push(supaFetch("company_dossier", `contact_id=eq.${contactId}&order=created_at.desc&limit=200`));
+      }
+
+      const results = await Promise.all(fetches);
+      const merged = results.flatMap(r => r || []);
+      // Deduplicate by id
+      const seen = new Set();
+      const deduped = merged.filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true; });
+      deduped.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      setEntries(deduped);
     } catch (e) {
       console.error("Dossier load error:", e);
     }
