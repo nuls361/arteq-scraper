@@ -781,12 +781,8 @@ def main():
         logger.info("No roles scored above threshold — done")
         return
 
-    # Step 4: Filter out non-target role types
-    scored = filter_by_role_type(scored)
-
-    if not scored:
-        logger.info("No target roles after filtering — done")
-        return
+    # Step 4: (role_type filter disabled — outputting all for prompt training)
+    # scored = filter_by_role_type(scored)
 
     # Step 5: Write CSV (sorted by score desc)
     scored.sort(key=lambda j: j.get("score", 0), reverse=True)
