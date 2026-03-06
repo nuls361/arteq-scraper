@@ -620,6 +620,8 @@ Also extract:
 - seniority_level: "junior" | "mid" | "senior" | "lead" | "unknown"
 - role_type: "software_dev" | "security" | "embedded" | "devops" | "data" |
              "it_ops" | "non_engineering" | "unknown"
+- requirements: key requirements summary (years of experience, degree, languages,
+  certifications, domain knowledge) — max 1 sentence, or empty string
 
 {roles_text}
 
@@ -634,7 +636,8 @@ Respond ONLY in JSON:
     "urgency_signals": "sofort, ASAP",
     "company_size_signal": "scale-up",
     "seniority_level": "senior",
-    "role_type": "software_dev"
+    "role_type": "software_dev",
+    "requirements": "5+ years Python, CS degree preferred, fluent German"
   }}
 ]}}"""
 
@@ -681,6 +684,7 @@ Respond ONLY in JSON:
                     job["company_size_signal"] = cls.get("company_size_signal", "unknown")
                     job["seniority_level"] = cls.get("seniority_level", "unknown")
                     job["role_type"] = cls.get("role_type", "unknown")
+                    job["requirements"] = cls.get("requirements", "")
                     scored.append(job)
 
             time.sleep(0.5)
@@ -722,7 +726,7 @@ def filter_by_role_type(jobs):
 
 CSV_COLUMNS = [
     "score", "company", "title", "seniority_level", "role_type",
-    "location", "is_remote", "tech_stack", "urgency_signals",
+    "location", "is_remote", "tech_stack", "requirements", "urgency_signals",
     "company_size_signal", "reason",
     "posted", "source", "url", "tier",
 ]
