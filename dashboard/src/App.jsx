@@ -317,7 +317,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
       const sorted = (data || []).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       setEntries(sorted);
     } catch (e) {
-      console.error("Dossier load error:", e);
+      console.error("Analysis load error:", e);
     }
     setLoading(false);
   }, [company, role, person]);
@@ -465,12 +465,12 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
     if (!file) return;
     setUploading(true);
     try {
-      // Upload to Supabase Storage: dossier-files/{company_id}/{timestamp}_{filename}
+      // Upload to Supabase Storage: analysis-files/{company_id}/{timestamp}_{filename}
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
       const storagePath = `${company.id}/${Date.now()}_${safeName}`;
       const publicUrl = await supaUploadFile("dossier-files", storagePath, file);
 
-      // Create dossier entry for the file
+      // Create analysis entry for the file
       await supaPost("company_dossier", {
         company_id: company.id,
         entry_type: "file",
@@ -604,7 +604,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
           <div style={{ display:"flex", gap:0, borderBottom:"1px solid #EBEBED", padding:"0 24px", flexShrink:0 }}>
             {(person ? [
               { key:"summary", label:"Summary" },
-              { key:"activity", label:"Dossier", count:timelineItems.length },
+              { key:"activity", label:"Analysis", count:timelineItems.length },
               { key:"company", label:"Company", count:null },
               { key:"roles", label:"Roles", count:companyRoles.length },
             ] : role ? [
@@ -615,7 +615,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
               { key:"company", label:"Company", count:null },
             ] : [
               { key:"summary", label:"Summary" },
-              { key:"activity", label:"Dossier", count:timelineItems.length },
+              { key:"activity", label:"Analysis", count:timelineItems.length },
               { key:"contacts", label:"Contacts", count:contacts.length },
               { key:"candidates", label:"Candidates", count:0 },
             ]).map(t => {
@@ -876,7 +876,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                     </div>
                   </div>
 
-                  {/* Dossier HTML - company_analysis entry */}
+                  {/* Analysis HTML - company_analysis entry */}
                   {entries.filter(e => e.entry_type === "company_analysis").map(e => (
                     <div key={e.id} style={{ marginBottom:20 }}>
                       <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>AI Analysis</div>
@@ -962,7 +962,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                         );
                       }
 
-                      // Dossier entry
+                      // Analysis entry
                       const entry = item.data;
                       const et = ENTRY_TYPE[entry.entry_type] || ENTRY_TYPE.note;
                       const date = entry.created_at ? new Date(entry.created_at) : null;
@@ -1640,6 +1640,7 @@ export default function ALineCRM() {
   const [agencies, setAgencies] = useState([]);
   const [agencyFilter, setAgencyFilter] = useState("all");
   const [selectedAgency, setSelectedAgency] = useState(null);
+  const [selectedCandidate, setSelectedCandidate] = useState(null);
   const [agencyContacts, setAgencyContacts] = useState([]);
   const [agencyDetailTab, setAgencyDetailTab] = useState("summary");
   const [showAgencyContactForm, setShowAgencyContactForm] = useState(false);
@@ -1810,11 +1811,11 @@ export default function ALineCRM() {
   }, []);
 
   useEffect(() => {
-    if (!selectedCompany && !selectedAgency) return;
+    if (!selectedCompany && !selectedAgency && !selectedCandidate) return;
     const handler = (e) => {
       const tag = e.target.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if (e.key === "Escape") { closeDetail(); setSelectedAgency(null); setAgencyContacts([]); }
+      if (e.key === "Escape") { closeDetail(); setSelectedAgency(null); setAgencyContacts([]); setSelectedCandidate(null); }
       if (selectedCompany) {
         if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); navigateCompany(-1); }
         if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); navigateCompany(1); }
@@ -1822,7 +1823,7 @@ export default function ALineCRM() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedCompany, selectedAgency, navigateCompany, closeDetail]);
+  }, [selectedCompany, selectedAgency, selectedCandidate, navigateCompany, closeDetail]);
 
   return (
     <div style={{ display:"flex", height:"100vh", overflow:"hidden", fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,sans-serif", background:"#fff", color:"#1A1A1A", fontSize:13 }}>
@@ -1837,7 +1838,7 @@ export default function ALineCRM() {
 
         <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, padding:"0 10px", marginBottom:8 }}>Demand Side</div>
 
-        <div onClick={() => { setTab("roles"); setSearch(""); setTierFilter("all"); setSourceFilter("all"); setSelectedCompany(null); setSelectedCompanyIndex(-1); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); setSelectedAgency(null); setAgencyContacts([]); }} style={{
+        <div onClick={() => { setTab("roles"); setSearch(""); setTierFilter("all"); setSourceFilter("all"); setSelectedCompany(null); setSelectedCompanyIndex(-1); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); setSelectedAgency(null); setAgencyContacts([]); setSelectedCandidate(null); }} style={{
           display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:6,
           background:tab==="roles"?"#EBEBED":"transparent", color:tab==="roles"?"#1A1A1A":"#6B6F76",
           fontSize:13, fontWeight:tab==="roles"?600:400, cursor:"pointer", marginBottom:1,
@@ -1850,7 +1851,7 @@ export default function ALineCRM() {
         <div style={{ height:12 }} />
         <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, padding:"0 10px", marginBottom:8 }}>Supply Side</div>
 
-        <div onClick={() => { setTab("agencies"); setSearch(""); setAgencyFilter("all"); setSelectedCompany(null); setSelectedCompanyIndex(-1); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); setSelectedAgency(null); setAgencyContacts([]); }} style={{
+        <div onClick={() => { setTab("agencies"); setSearch(""); setAgencyFilter("all"); setSelectedCompany(null); setSelectedCompanyIndex(-1); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); setSelectedAgency(null); setAgencyContacts([]); setSelectedCandidate(null); }} style={{
           display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:6,
           background:tab==="agencies"?"#EBEBED":"transparent", color:tab==="agencies"?"#1A1A1A":"#6B6F76",
           fontSize:13, fontWeight:tab==="agencies"?600:400, cursor:"pointer", marginBottom:1,
@@ -1860,7 +1861,7 @@ export default function ALineCRM() {
           <span style={{ fontSize:11, color:"#A0A3A9" }}>{agencies.length || null}</span>
         </div>
 
-        <div onClick={() => { setTab("talent"); setSearch(""); setTalentTierFilter("all"); setSelectedCompany(null); setSelectedCompanyIndex(-1); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); setSelectedAgency(null); setAgencyContacts([]); }} style={{
+        <div onClick={() => { setTab("talent"); setSearch(""); setTalentTierFilter("all"); setSelectedCompany(null); setSelectedCompanyIndex(-1); setSelectedRole(null); setSelectedRoleIndex(-1); setSelectedPerson(null); setSelectedPersonIndex(-1); setSelectedAgency(null); setAgencyContacts([]); setSelectedCandidate(null); }} style={{
           display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:6,
           background:tab==="talent"?"#EBEBED":"transparent", color:tab==="talent"?"#1A1A1A":"#6B6F76",
           fontSize:13, fontWeight:tab==="talent"?600:400, cursor:"pointer", marginBottom:1,
@@ -1889,7 +1890,7 @@ export default function ALineCRM() {
           <div style={{ flex:1, display:"flex", flexDirection:"column", minWidth:0, minHeight:0, fontFamily:"'Inter',-apple-system,sans-serif" }}>
             {/* Top Bar */}
             <div style={{ padding:"10px 20px", borderBottom:"1px solid #EBEBED", display:"flex", alignItems:"center", gap:12 }}>
-              <button onClick={() => { setSelectedAgency(null); setAgencyContacts([]); }} style={{
+              <button onClick={() => { setSelectedAgency(null); setAgencyContacts([]); setSelectedCandidate(null); }} style={{
                 width:28, height:28, borderRadius:6, border:"1px solid #EBEBED",
                 background:"#fff", cursor:"pointer", fontSize:15, color:"#6B6F76",
                 display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
@@ -1909,7 +1910,6 @@ export default function ALineCRM() {
                 <div style={{ display:"flex", gap:0, borderBottom:"1px solid #EBEBED", padding:"0 24px", flexShrink:0 }}>
                   {[
                     { key:"summary", label:"Summary" },
-                    { key:"dossier", label:"Dossier" },
                     { key:"contacts", label:"Contacts", count: agencyContacts.length },
                     { key:"candidates", label:"Candidates", count: 0 },
                   ].map(t => {
@@ -1967,15 +1967,6 @@ export default function ALineCRM() {
                           </div>
                         </div>
                       )}
-                    </div>
-                  )}
-
-                  {/* ── Agency Dossier Tab ── */}
-                  {agencyDetailTab === "dossier" && (
-                    <div style={{ padding:40, textAlign:"center", color:"#A0A3A9" }}>
-                      <div style={{ fontSize:22, marginBottom:6 }}>📋</div>
-                      <div style={{ fontSize:13, fontWeight:500 }}>No dossier entries yet</div>
-                      <div style={{ fontSize:12, marginTop:4 }}>Agency dossier entries will appear here.</div>
                     </div>
                   )}
 
@@ -2121,6 +2112,106 @@ export default function ALineCRM() {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        ) : selectedCandidate ? (
+          /* ── Full-screen Candidate Detail ── */
+          <div style={{ flex:1, display:"flex", flexDirection:"column", minWidth:0, minHeight:0, fontFamily:"'Inter',-apple-system,sans-serif" }}>
+            {/* Top Bar */}
+            <div style={{ padding:"10px 20px", borderBottom:"1px solid #EBEBED", display:"flex", alignItems:"center", gap:12 }}>
+              <button onClick={() => setSelectedCandidate(null)} style={{
+                width:28, height:28, borderRadius:6, border:"1px solid #EBEBED",
+                background:"#fff", cursor:"pointer", fontSize:15, color:"#6B6F76",
+                display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
+              }}>×</button>
+              <div style={{ width:1, height:20, background:"#EBEBED" }} />
+              <div style={{ fontSize:15, fontWeight:700, color:"#1A1A1A" }}>{selectedCandidate.full_name}</div>
+              {selectedCandidate.linkedin_url && (
+                <a href={selectedCandidate.linkedin_url} target="_blank" rel="noopener" style={{ padding:"3px 8px", borderRadius:4, background:"#0A66C2", color:"#fff", fontSize:10, fontWeight:600, textDecoration:"none" }}>in</a>
+              )}
+            </div>
+            {/* Two-Column Body */}
+            <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
+              {/* LEFT — Summary */}
+              <div style={{ flex:3, overflow:"auto", padding:"20px 24px", borderRight:"1px solid #EBEBED" }}>
+                {/* Bio / Summary */}
+                {selectedCandidate.summary && (
+                  <div style={{ fontSize:13, color:"#1A1A1A", lineHeight:1.7, marginBottom:20, padding:"14px 18px", background:"#EDE9FE", borderRadius:10, border:"1px solid #DDD6FE", fontWeight:500 }}>
+                    {selectedCandidate.summary}
+                  </div>
+                )}
+
+                {/* Skills */}
+                {selectedCandidate.skills && selectedCandidate.skills.length > 0 && (
+                  <div style={{ marginBottom:20 }}>
+                    <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:8 }}>Skills</div>
+                    <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                      {selectedCandidate.skills.map((s, i) => (
+                        <span key={i} style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:500, background:"#F2F3F5", color:"#6B6F76" }}>{s}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Experience */}
+                {selectedCandidate.experience_summary && (
+                  <div style={{ marginBottom:20 }}>
+                    <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:8 }}>Experience</div>
+                    <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, padding:"10px 14px", background:"#F7F7F8", borderRadius:6 }}>
+                      {selectedCandidate.experience_summary}
+                    </div>
+                  </div>
+                )}
+
+                {/* Notes */}
+                {selectedCandidate.notes && (
+                  <div style={{ marginBottom:20 }}>
+                    <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:8 }}>Notes</div>
+                    <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, padding:"10px 14px", background:"#F7F7F8", borderRadius:6 }}>
+                      {selectedCandidate.notes}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* RIGHT — Details */}
+              <div style={{ flex:2, overflow:"auto", padding:"20px 24px" }}>
+                {/* Tier + Score badges */}
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:20 }}>
+                  {(() => { const t = CAND_TIER[selectedCandidate.tier] || { label:selectedCandidate.tier||"—", bg:"#F2F3F5", color:"#6B6F76" }; return (
+                    <span style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:600, background:t.bg, color:t.color }}>{t.label}</span>
+                  ); })()}
+                  {selectedCandidate.score != null && (
+                    <span style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:600, background:"#F2F3F5", color:"#1A1A1A" }}>Score: {selectedCandidate.score}</span>
+                  )}
+                </div>
+
+                {/* Overview */}
+                <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:8 }}>Overview</div>
+                <div style={{ display:"grid", gridTemplateColumns:"100px 1fr", gap:"6px 12px", fontSize:12, marginBottom:18 }}>
+                  {[
+                    ["Name", selectedCandidate.full_name],
+                    ["Title", selectedCandidate.current_title],
+                    ["Email", selectedCandidate.email],
+                    ["Phone", selectedCandidate.phone],
+                    ["LinkedIn", selectedCandidate.linkedin_url],
+                    ["Location", selectedCandidate.location],
+                    ["Source", selectedCandidate.source],
+                    ["Added", selectedCandidate.created_at ? new Date(selectedCandidate.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : null],
+                  ].map(([label, value]) => {
+                    let rendered = value || "—";
+                    if (label === "Email" && value) rendered = <a href={`mailto:${value}`} style={{ fontSize:12, color:"#5B5FC7", textDecoration:"none" }}>{value}</a>;
+                    else if (label === "LinkedIn" && value) rendered = <a href={value} target="_blank" rel="noopener" style={{ fontSize:12, color:"#0A66C2", textDecoration:"none", fontWeight:600 }}>Profile ↗</a>;
+                    else if (label === "Source") rendered = <SourcePill source={value} />;
+                    return (
+                      <div key={label} style={{ display:"contents" }}>
+                        <div style={{ color:"#A0A3A9", fontSize:12 }}>{label}</div>
+                        <div style={{ color:"#1A1A1A" }}>{rendered}</div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
@@ -2358,7 +2449,7 @@ export default function ALineCRM() {
                   {filteredCandidates.slice(0,200).map(c => {
                     const tier = CAND_TIER[c.tier] || { label:c.tier||"—", bg:"#F2F3F5", color:"#6B6F76" };
                     return (
-                      <tr key={c.id} style={{ borderBottom:"1px solid #F7F7F8" }}
+                      <tr key={c.id} onClick={() => setSelectedCandidate(c)} style={{ borderBottom:"1px solid #F7F7F8", cursor:"pointer" }}
                         onMouseEnter={e => e.currentTarget.style.background="#F7F7F8"}
                         onMouseLeave={e => e.currentTarget.style.background="transparent"}>
                         <td style={{ padding:"9px 14px" }}>
