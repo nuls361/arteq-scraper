@@ -257,6 +257,15 @@ def main():
         logger.error(f"Company enrichment error: {e}")
         results["Company Enrichment"] = f"Error: {e}"
 
+    # Step 2.5: Role enrichment (decision maker + sourcing brief)
+    try:
+        from enrichment.role_enricher import run as run_role_enricher
+        run_role_enricher()
+        results["Role Enrichment"] = "Done"
+    except Exception as e:
+        logger.error(f"Role enrichment error: {e}")
+        results["Role Enrichment"] = f"Error: {e}"
+
     # Step 3: Contact enrichment
     try:
         from enrichment.contact_enricher import run as run_contact_enricher
@@ -311,7 +320,48 @@ def main():
         logger.error(f"AE agent error: {e}")
         results["AE Agent"] = f"Error: {e}"
 
-    # Step 9: Daily brief
+    # ── Agency Pipeline (supply-side) ──────────────────────
+
+    # Step 9: Agency finder (weekly — Monday only)
+    if datetime.now(timezone.utc).weekday() == 0:
+        try:
+            from agency_pipeline.agency_finder import run as run_agency_finder
+            added = run_agency_finder()
+            results["Agency Finder"] = f"{added} new agencies"
+        except Exception as e:
+            logger.error(f"Agency finder error: {e}")
+            results["Agency Finder"] = f"Error: {e}"
+    else:
+        results["Agency Finder"] = "Skipped (Monday only)"
+
+    # Step 10: Agency enrichment (daily)
+    try:
+        from agency_pipeline.agency_enricher import run as run_agency_enricher
+        run_agency_enricher()
+        results["Agency Enrichment"] = "Done"
+    except Exception as e:
+        logger.error(f"Agency enrichment error: {e}")
+        results["Agency Enrichment"] = f"Error: {e}"
+
+    # Step 11: Agency GF finder (daily)
+    try:
+        from agency_pipeline.agency_gf_finder import run as run_gf_finder
+        run_gf_finder()
+        results["Agency GF Finder"] = "Done"
+    except Exception as e:
+        logger.error(f"Agency GF finder error: {e}")
+        results["Agency GF Finder"] = f"Error: {e}"
+
+    # Step 12: Agency outreach (daily)
+    try:
+        from agency_pipeline.agency_sdr_agent import run as run_agency_sdr
+        run_agency_sdr()
+        results["Agency Outreach"] = "Done"
+    except Exception as e:
+        logger.error(f"Agency outreach error: {e}")
+        results["Agency Outreach"] = f"Error: {e}"
+
+    # Step 13: Daily brief
     try:
         send_daily_brief(results)
     except Exception as e:

@@ -200,8 +200,10 @@ const ENTRY_TYPE = {
   meeting_note: { label: "Meeting Note", icon: "🤝", bg: "#EDE9FE", color: "#6D28D9" },
   note:         { label: "Note",         icon: "📝", bg: "#FFF0E1", color: "#AD5700" },
   file:         { label: "File",         icon: "📎", bg: "#F0FDF4", color: "#15803D" },
-  agent_action: { label: "Agent",        icon: "🤖", bg: "#EDE9FE", color: "#6D28D9" },
-  outreach:     { label: "Outreach",     icon: "📨", bg: "#DBEAFE", color: "#1D4ED8" },
+  agent_action:     { label: "Agent",          icon: "🤖", bg: "#EDE9FE", color: "#6D28D9" },
+  outreach:         { label: "Outreach",       icon: "📨", bg: "#DBEAFE", color: "#1D4ED8" },
+  role_analysis:    { label: "Role Analysis",  icon: "📋", bg: "#D1FAE5", color: "#065F46" },
+  role_dm_research: { label: "Hiring Manager", icon: "🎯", bg: "#FEF3C7", color: "#92400E" },
 };
 
 function OutreachThread({ thread, contacts: threadContacts }) {
@@ -295,16 +297,17 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
     if (!company) return;
     setLoading(true);
     try {
-      const data = await supaFetch(
-        "company_dossier",
-        `company_id=eq.${company.id}&order=created_at.desc&limit=200`
-      );
+      // When viewing a role, fetch role-specific dossier entries
+      const params = role
+        ? `role_id=eq.${role.id}&order=created_at.desc&limit=200`
+        : `company_id=eq.${company.id}&order=created_at.desc&limit=200`;
+      const data = await supaFetch("company_dossier", params);
       setEntries(data || []);
     } catch (e) {
       console.error("Dossier load error:", e);
     }
     setLoading(false);
-  }, [company]);
+  }, [company, role]);
 
   useEffect(() => { loadEntries(); }, [loadEntries]);
 
@@ -789,68 +792,109 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
               </>
             )}
 
-            {/* ── Contacts Tab ── */}
+            {/* ── Contacts / Hiring Manager Tab ── */}
             {detailTab === "contacts" && (
-              <div>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-                  <div style={{ fontSize:13, fontWeight:600, color:"#1A1A1A" }}>
-                    {contacts.length} {contacts.length === 1 ? "contact" : "contacts"}
-                  </div>
-                  <button onClick={() => setShowAddContact(!showAddContact)} style={{
-                    padding:"5px 14px", borderRadius:6, fontSize:12, fontWeight:600, cursor:"pointer",
-                    border:"1px solid #EBEBED", background: showAddContact ? "#1A1A1A" : "#fff",
-                    color: showAddContact ? "#fff" : "#6B6F76", fontFamily:"inherit",
-                  }}>{showAddContact ? "Cancel" : "+ Add Contact"}</button>
-                </div>
-
-                {showAddContact && (
-                  <div style={{ background:"#FAFAFA", borderRadius:8, padding:16, marginBottom:16, border:"1px solid #EBEBED" }}>
-                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-                      <input value={newContact.name} onChange={e => setNewContact(p => ({...p, name: e.target.value}))} placeholder="Name *" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none", gridColumn: "1 / -1" }} />
-                      <input value={newContact.title} onChange={e => setNewContact(p => ({...p, title: e.target.value}))} placeholder="Title (e.g. CEO)" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
-                      <input value={newContact.linkedin_url} onChange={e => setNewContact(p => ({...p, linkedin_url: e.target.value}))} placeholder="LinkedIn URL" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
-                      <input value={newContact.email} onChange={e => setNewContact(p => ({...p, email: e.target.value}))} placeholder="Email" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
-                      <input value={newContact.phone} onChange={e => setNewContact(p => ({...p, phone: e.target.value}))} placeholder="Phone" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
-                    </div>
-                    <button onClick={handleAddContact} disabled={savingContact || !newContact.name.trim()} style={{
-                      marginTop:10, padding:"7px 18px", borderRadius:6, border:"none", fontSize:12, fontWeight:600, cursor: newContact.name.trim() ? "pointer" : "default", fontFamily:"inherit",
-                      background: newContact.name.trim() ? "#1A1A1A" : "#EBEBED", color: newContact.name.trim() ? "#fff" : "#A0A3A9",
-                    }}>{savingContact ? "Saving..." : "Save Contact"}</button>
-                  </div>
-                )}
-
-                {contacts.length === 0 && !showAddContact ? (
-                  <div style={{ padding:40, textAlign:"center", color:"#A0A3A9" }}>
-                    <div style={{ fontSize:22, marginBottom:6 }}>👤</div>
-                    <div style={{ fontSize:13, fontWeight:500 }}>No contacts yet</div>
-                    <div style={{ fontSize:12, marginTop:4 }}>Click "+ Add Contact" to add one.</div>
-                  </div>
-                ) : (
-                  <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                    {contacts.map((c, i) => (
-                      <div key={c.id || i} onClick={() => onOpenPerson && onOpenPerson(c)} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", background:"#F7F7F8", borderRadius:10, cursor:"pointer" }}
-                        onMouseEnter={e => e.currentTarget.style.background="#EBEBED"}
-                        onMouseLeave={e => e.currentTarget.style.background="#F7F7F8"}>
-                        <div style={{ width:36, height:36, borderRadius:8, background: c.is_decision_maker ? "#1A1A1A" : "#EBEBED", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700, color: c.is_decision_maker ? "#fff" : "#6B6F76", flexShrink:0 }}>
-                          {c.name?.charAt(0) || "?"}
+              role ? (
+                /* Hiring Manager view for roles */
+                <div>
+                  {role.hiring_manager_name ? (
+                    <div style={{ border:"1px solid #EBEBED", borderRadius:10, padding:"20px 22px", background:"#FAFAFA" }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:16 }}>
+                        <div style={{ width:48, height:48, borderRadius:10, background:"#1A1A1A", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:700, color:"#fff", flexShrink:0 }}>
+                          {role.hiring_manager_name.charAt(0)}
                         </div>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                            <span style={{ fontSize:13, fontWeight:600, color:"#1A1A1A" }}>{c.name}</span>
-                            {c.is_decision_maker && <span style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:3, background:"#FDECEC", color:"#C13030" }}>DM</span>}
-                          </div>
-                          <div style={{ fontSize:11, color:"#6B6F76", marginTop:1 }}>{c.role_at_company || c.title || ""}</div>
-                          <div style={{ display:"flex", gap:8, marginTop:4, flexWrap:"wrap" }}>
-                            {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{ fontSize:11, color:"#0A66C2", textDecoration:"none", fontWeight:600 }}>LinkedIn</a>}
-                            {c.email && <a href={`mailto:${c.email}`} onClick={e=>e.stopPropagation()} style={{ fontSize:11, color:"#5B5FC7", textDecoration:"none" }}>{c.email}</a>}
-                            {c.phone && <span style={{ fontSize:11, color:"#6B6F76" }}>{c.phone}</span>}
-                          </div>
+                        <div>
+                          <div style={{ fontSize:16, fontWeight:700, color:"#1A1A1A" }}>{role.hiring_manager_name}</div>
+                          {role.hiring_manager_title && <div style={{ fontSize:12, color:"#6B6F76", marginTop:2 }}>{role.hiring_manager_title}</div>}
                         </div>
+                        {role.hiring_manager_confidence && (
+                          <span style={{
+                            marginLeft:"auto", padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:600,
+                            background: role.hiring_manager_confidence === "high" ? "#D1FAE5" : role.hiring_manager_confidence === "medium" ? "#FEF3C7" : "#F2F3F5",
+                            color: role.hiring_manager_confidence === "high" ? "#065F46" : role.hiring_manager_confidence === "medium" ? "#92400E" : "#6B6F76",
+                          }}>{role.hiring_manager_confidence} confidence</span>
+                        )}
                       </div>
-                    ))}
+                      <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                        {role.hiring_manager_linkedin && (
+                          <a href={role.hiring_manager_linkedin} target="_blank" rel="noopener" style={{
+                            padding:"6px 14px", borderRadius:6, background:"#0A66C2", color:"#fff",
+                            fontSize:12, fontWeight:600, textDecoration:"none", display:"inline-flex", alignItems:"center", gap:4,
+                          }}>LinkedIn Profile</a>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ padding:40, textAlign:"center", color:"#A0A3A9" }}>
+                      <div style={{ fontSize:22, marginBottom:6 }}>🎯</div>
+                      <div style={{ fontSize:13, fontWeight:500 }}>Pending enrichment</div>
+                      <div style={{ fontSize:12, marginTop:4 }}>Hiring manager will be identified during role enrichment.</div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Contacts view for companies */
+                <div>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:"#1A1A1A" }}>
+                      {contacts.length} {contacts.length === 1 ? "contact" : "contacts"}
+                    </div>
+                    <button onClick={() => setShowAddContact(!showAddContact)} style={{
+                      padding:"5px 14px", borderRadius:6, fontSize:12, fontWeight:600, cursor:"pointer",
+                      border:"1px solid #EBEBED", background: showAddContact ? "#1A1A1A" : "#fff",
+                      color: showAddContact ? "#fff" : "#6B6F76", fontFamily:"inherit",
+                    }}>{showAddContact ? "Cancel" : "+ Add Contact"}</button>
                   </div>
-                )}
-              </div>
+
+                  {showAddContact && (
+                    <div style={{ background:"#FAFAFA", borderRadius:8, padding:16, marginBottom:16, border:"1px solid #EBEBED" }}>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                        <input value={newContact.name} onChange={e => setNewContact(p => ({...p, name: e.target.value}))} placeholder="Name *" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none", gridColumn: "1 / -1" }} />
+                        <input value={newContact.title} onChange={e => setNewContact(p => ({...p, title: e.target.value}))} placeholder="Title (e.g. CEO)" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
+                        <input value={newContact.linkedin_url} onChange={e => setNewContact(p => ({...p, linkedin_url: e.target.value}))} placeholder="LinkedIn URL" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
+                        <input value={newContact.email} onChange={e => setNewContact(p => ({...p, email: e.target.value}))} placeholder="Email" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
+                        <input value={newContact.phone} onChange={e => setNewContact(p => ({...p, phone: e.target.value}))} placeholder="Phone" style={{ padding:"8px 10px", borderRadius:6, border:"1px solid #EBEBED", fontSize:12, fontFamily:"inherit", outline:"none" }} />
+                      </div>
+                      <button onClick={handleAddContact} disabled={savingContact || !newContact.name.trim()} style={{
+                        marginTop:10, padding:"7px 18px", borderRadius:6, border:"none", fontSize:12, fontWeight:600, cursor: newContact.name.trim() ? "pointer" : "default", fontFamily:"inherit",
+                        background: newContact.name.trim() ? "#1A1A1A" : "#EBEBED", color: newContact.name.trim() ? "#fff" : "#A0A3A9",
+                      }}>{savingContact ? "Saving..." : "Save Contact"}</button>
+                    </div>
+                  )}
+
+                  {contacts.length === 0 && !showAddContact ? (
+                    <div style={{ padding:40, textAlign:"center", color:"#A0A3A9" }}>
+                      <div style={{ fontSize:22, marginBottom:6 }}>👤</div>
+                      <div style={{ fontSize:13, fontWeight:500 }}>No contacts yet</div>
+                      <div style={{ fontSize:12, marginTop:4 }}>Click "+ Add Contact" to add one.</div>
+                    </div>
+                  ) : (
+                    <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                      {contacts.map((c, i) => (
+                        <div key={c.id || i} onClick={() => onOpenPerson && onOpenPerson(c)} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", background:"#F7F7F8", borderRadius:10, cursor:"pointer" }}
+                          onMouseEnter={e => e.currentTarget.style.background="#EBEBED"}
+                          onMouseLeave={e => e.currentTarget.style.background="#F7F7F8"}>
+                          <div style={{ width:36, height:36, borderRadius:8, background: c.is_decision_maker ? "#1A1A1A" : "#EBEBED", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700, color: c.is_decision_maker ? "#fff" : "#6B6F76", flexShrink:0 }}>
+                            {c.name?.charAt(0) || "?"}
+                          </div>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                              <span style={{ fontSize:13, fontWeight:600, color:"#1A1A1A" }}>{c.name}</span>
+                              {c.is_decision_maker && <span style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:3, background:"#FDECEC", color:"#C13030" }}>DM</span>}
+                            </div>
+                            <div style={{ fontSize:11, color:"#6B6F76", marginTop:1 }}>{c.role_at_company || c.title || ""}</div>
+                            <div style={{ display:"flex", gap:8, marginTop:4, flexWrap:"wrap" }}>
+                              {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{ fontSize:11, color:"#0A66C2", textDecoration:"none", fontWeight:600 }}>LinkedIn</a>}
+                              {c.email && <a href={`mailto:${c.email}`} onClick={e=>e.stopPropagation()} style={{ fontSize:11, color:"#5B5FC7", textDecoration:"none" }}>{c.email}</a>}
+                              {c.phone && <span style={{ fontSize:11, color:"#6B6F76" }}>{c.phone}</span>}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
             )}
 
             {/* ── Candidates Tab ── */}
@@ -1015,6 +1059,57 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                   textDecoration:"none",
                 }}>View job posting ↗</a>
               )}
+
+              {/* Sourcing Brief */}
+              {(() => {
+                const brief = typeof role.sourcing_brief === "string" ? (() => { try { return JSON.parse(role.sourcing_brief); } catch { return null; } })() : role.sourcing_brief;
+                if (!brief) return null;
+                return (
+                  <div style={{ marginTop:28, paddingTop:20, borderTop:"1px solid #EBEBED" }}>
+                    <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:12 }}>Sourcing Brief</div>
+
+                    {brief.must_have && brief.must_have.length > 0 && (
+                      <div style={{ marginBottom:14 }}>
+                        <div style={{ fontSize:11, fontWeight:600, color:"#065F46", marginBottom:6 }}>Must-Have</div>
+                        <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+                          {brief.must_have.map((item, i) => (
+                            <div key={i} style={{ fontSize:11, color:"#1A1A1A", padding:"4px 8px", background:"#D1FAE5", borderRadius:4 }}>{item}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {brief.nice_to_have && brief.nice_to_have.length > 0 && (
+                      <div style={{ marginBottom:14 }}>
+                        <div style={{ fontSize:11, fontWeight:600, color:"#AD5700", marginBottom:6 }}>Nice-to-Have</div>
+                        <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+                          {brief.nice_to_have.map((item, i) => (
+                            <div key={i} style={{ fontSize:11, color:"#1A1A1A", padding:"4px 8px", background:"#FFF0E1", borderRadius:4 }}>{item}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {brief.ideal_candidate_profile && (
+                      <div style={{ marginBottom:14 }}>
+                        <div style={{ fontSize:11, fontWeight:600, color:"#6D28D9", marginBottom:6 }}>Ideal Profile</div>
+                        <div style={{ fontSize:11, color:"#6B6F76", background:"#F7F7F8", padding:"8px 10px", borderRadius:6, lineHeight:1.5 }}>
+                          {brief.ideal_candidate_profile.background && <div><strong>Background:</strong> {brief.ideal_candidate_profile.background}</div>}
+                          {brief.ideal_candidate_profile.years_experience && <div><strong>Experience:</strong> {brief.ideal_candidate_profile.years_experience}</div>}
+                          {brief.ideal_candidate_profile.titles_to_search && <div><strong>Target titles:</strong> {brief.ideal_candidate_profile.titles_to_search.join(", ")}</div>}
+                        </div>
+                      </div>
+                    )}
+
+                    {brief.linkedin_boolean_search && (
+                      <div style={{ marginBottom:14 }}>
+                        <div style={{ fontSize:11, fontWeight:600, color:"#1D4ED8", marginBottom:6 }}>LinkedIn Boolean Search</div>
+                        <div style={{ fontSize:11, color:"#1D4ED8", background:"#DBEAFE", padding:"8px 10px", borderRadius:6, fontFamily:"monospace", wordBreak:"break-all" }}>{brief.linkedin_boolean_search}</div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Candidate Matches */}
               <div style={{ marginTop:28, paddingTop:20, borderTop:"1px solid #EBEBED" }}>
