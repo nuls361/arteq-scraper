@@ -1,0 +1,39 @@
+name: A-Line SWE Scraper
+
+on:
+  schedule:
+    # 06:30 UTC = 07:30 CET
+    - cron: '30 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run SWE scraper
+        env:
+          PYTHONPATH: .
+          JSEARCH_API_KEY: ${{ secrets.JSEARCH_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m scrapers.swe_scraper
+
+      - name: Upload CSV artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swe-roles-${{ github.run_id }}
+          path: swe_roles_*.csv
+          retention-days: 30
