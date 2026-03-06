@@ -1374,6 +1374,8 @@ export default function ALineCRM() {
   const [peopleRoleTypeFilter, setPeopleRoleTypeFilter] = useState("all");
   const [agencies, setAgencies] = useState([]);
   const [agencyFilter, setAgencyFilter] = useState("all");
+  const [selectedAgency, setSelectedAgency] = useState(null);
+  const [agencyContacts, setAgencyContacts] = useState([]);
   const [allMatches, setAllMatches] = useState([]);
   const [allCandidates, setAllCandidates] = useState({});
   const [matchStatusFilter, setMatchStatusFilter] = useState("all");
@@ -1938,53 +1940,194 @@ export default function ALineCRM() {
                   <div style={{ fontSize:12, marginTop:4 }}>Run the agency finder to discover agencies.</div>
                 </div>
               ) : (
-                <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                  <thead>
-                    <tr>
-                      <ColHead>Agency</ColHead>
-                      <ColHead width={80}>Status</ColHead>
-                      <ColHead width={80}>Quality</ColHead>
-                      <ColHead width={90}>Headcount</ColHead>
-                      <ColHead width={120}>Location</ColHead>
-                      <ColHead width={90}>Outreach</ColHead>
-                      <ColHead width={80}>Added</ColHead>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredAgencies.slice(0,200).map(a => (
-                      <tr key={a.id} style={{ borderBottom:"1px solid #F7F7F8", cursor:"default" }}
-                        onMouseEnter={e => e.currentTarget.style.background="#F7F7F8"}
-                        onMouseLeave={e => e.currentTarget.style.background="transparent"}>
-                        <td style={{ padding:"9px 14px" }}>
-                          <div style={{ fontWeight:600, fontSize:13 }}>{a.name}</div>
-                          <div style={{ fontSize:11, color:"#6B6F76" }}>
-                            {a.domain && <a href={`https://${a.domain}`} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{ color:"#5B5FC7", textDecoration:"none" }}>{a.domain}</a>}
-                          </div>
-                        </td>
-                        <td style={{ padding:"9px 14px" }}>
-                          {a.is_direct_competitor ? (
-                            <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:600, background:"#FDECEC", color:"#C13030" }}>Competitor</span>
-                          ) : (
-                            <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background: a.enrichment_status==="enriched"?"#D1FAE5":"#FEF3C7", color: a.enrichment_status==="enriched"?"#065F46":"#92400E" }}>{a.enrichment_status || "pending"}</span>
+                <div style={{ display:"flex", flex:1, minHeight:0 }}>
+                  {/* Agency list */}
+                  <div style={{ flex: selectedAgency ? 2 : 1, overflow:"auto", borderRight: selectedAgency ? "1px solid #EBEBED" : "none" }}>
+                    <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                      <thead>
+                        <tr>
+                          <ColHead>Agency</ColHead>
+                          <ColHead width={80}>Status</ColHead>
+                          <ColHead width={80}>Quality</ColHead>
+                          <ColHead width={90}>Headcount</ColHead>
+                          {!selectedAgency && <ColHead width={120}>Location</ColHead>}
+                          <ColHead width={90}>Outreach</ColHead>
+                          {!selectedAgency && <ColHead width={80}>Added</ColHead>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredAgencies.slice(0,200).map(a => (
+                          <tr key={a.id} onClick={async () => {
+                            setSelectedAgency(a);
+                            try {
+                              const contacts = await supaFetch("agency_contact", `agency_id=eq.${a.id}&order=is_primary.desc`);
+                              setAgencyContacts(contacts || []);
+                            } catch { setAgencyContacts([]); }
+                          }} style={{
+                            borderBottom:"1px solid #F7F7F8", cursor:"pointer",
+                            background: selectedAgency?.id === a.id ? "#EDE9FE" : "transparent",
+                          }}
+                            onMouseEnter={e => { if (selectedAgency?.id !== a.id) e.currentTarget.style.background="#F7F7F8"; }}
+                            onMouseLeave={e => { if (selectedAgency?.id !== a.id) e.currentTarget.style.background="transparent"; }}>
+                            <td style={{ padding:"9px 14px" }}>
+                              <div style={{ fontWeight:600, fontSize:13 }}>{a.name}</div>
+                              <div style={{ fontSize:11, color:"#6B6F76" }}>
+                                {a.domain && <a href={`https://${a.domain}`} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{ color:"#5B5FC7", textDecoration:"none" }}>{a.domain}</a>}
+                              </div>
+                            </td>
+                            <td style={{ padding:"9px 14px" }}>
+                              {a.is_direct_competitor ? (
+                                <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:600, background:"#FDECEC", color:"#C13030" }}>Competitor</span>
+                              ) : (
+                                <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background: a.enrichment_status==="enriched"?"#D1FAE5":"#FEF3C7", color: a.enrichment_status==="enriched"?"#065F46":"#92400E" }}>{a.enrichment_status || "pending"}</span>
+                              )}
+                            </td>
+                            <td style={{ padding:"9px 14px", textAlign:"center" }}>
+                              {a.quality_score != null ? (
+                                <span style={{ fontWeight:700, fontSize:13, color: a.quality_score >= 8 ? "#065F46" : a.quality_score >= 5 ? "#AD5700" : "#A0A3A9" }}>{a.quality_score}</span>
+                              ) : <span style={{ color:"#A0A3A9" }}>—</span>}
+                            </td>
+                            <td style={{ padding:"9px 14px", fontSize:12, color:"#6B6F76" }}>{a.headcount || "—"}</td>
+                            {!selectedAgency && <td style={{ padding:"9px 14px", fontSize:12, color:"#6B6F76" }}>{[a.hq_city, a.hq_country].filter(Boolean).join(", ") || "—"}</td>}
+                            <td style={{ padding:"9px 14px" }}>
+                              <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background:"#F2F3F5", color:"#6B6F76" }}>{a.outreach_status || "pending"}</span>
+                            </td>
+                            {!selectedAgency && <td style={{ padding:"9px 14px", color:"#A0A3A9", fontSize:12, whiteSpace:"nowrap" }}>
+                              {a.created_at ? new Date(a.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short"}) : "—"}
+                            </td>}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Agency detail panel */}
+                  {selectedAgency && (
+                    <div style={{ flex:3, overflow:"auto", padding:"20px 24px" }}>
+                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20 }}>
+                        <div>
+                          <div style={{ fontSize:18, fontWeight:700, color:"#1A1A1A" }}>{selectedAgency.name}</div>
+                          {selectedAgency.domain && (
+                            <a href={`https://${selectedAgency.domain}`} target="_blank" rel="noopener" style={{ fontSize:12, color:"#5B5FC7", textDecoration:"none" }}>{selectedAgency.domain} ↗</a>
                           )}
-                        </td>
-                        <td style={{ padding:"9px 14px", textAlign:"center" }}>
-                          {a.quality_score != null ? (
-                            <span style={{ fontWeight:700, fontSize:13, color: a.quality_score >= 8 ? "#065F46" : a.quality_score >= 5 ? "#AD5700" : "#A0A3A9" }}>{a.quality_score}</span>
-                          ) : <span style={{ color:"#A0A3A9" }}>—</span>}
-                        </td>
-                        <td style={{ padding:"9px 14px", fontSize:12, color:"#6B6F76" }}>{a.headcount || "—"}</td>
-                        <td style={{ padding:"9px 14px", fontSize:12, color:"#6B6F76" }}>{[a.hq_city, a.hq_country].filter(Boolean).join(", ") || "—"}</td>
-                        <td style={{ padding:"9px 14px" }}>
-                          <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background:"#F2F3F5", color:"#6B6F76" }}>{a.outreach_status || "pending"}</span>
-                        </td>
-                        <td style={{ padding:"9px 14px", color:"#A0A3A9", fontSize:12, whiteSpace:"nowrap" }}>
-                          {a.created_at ? new Date(a.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short"}) : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </div>
+                        <button onClick={() => { setSelectedAgency(null); setAgencyContacts([]); }} style={{
+                          padding:"4px 10px", borderRadius:6, border:"1px solid #EBEBED", background:"#fff",
+                          cursor:"pointer", fontSize:14, color:"#6B6F76", fontFamily:"inherit",
+                        }}>✕</button>
+                      </div>
+
+                      {/* Status badges */}
+                      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:20 }}>
+                        {selectedAgency.is_direct_competitor && (
+                          <span style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:600, background:"#FDECEC", color:"#C13030" }}>Competitor</span>
+                        )}
+                        <span style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:500, background: selectedAgency.enrichment_status==="enriched"?"#D1FAE5":"#FEF3C7", color: selectedAgency.enrichment_status==="enriched"?"#065F46":"#92400E" }}>
+                          {selectedAgency.enrichment_status || "pending"}
+                        </span>
+                        {selectedAgency.quality_score != null && (
+                          <span style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:600, background:"#F2F3F5", color:"#1A1A1A" }}>Quality: {selectedAgency.quality_score}/10</span>
+                        )}
+                        {selectedAgency.source && (
+                          <span style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:500, background:"#F2F3F5", color:"#6B6F76" }}>Source: {selectedAgency.source}</span>
+                        )}
+                      </div>
+
+                      {/* Description */}
+                      {selectedAgency.description && (
+                        <div style={{ fontSize:13, color:"#6B6F76", lineHeight:1.7, marginBottom:20, padding:"12px 16px", background:"#F7F7F8", borderRadius:8 }}>
+                          {selectedAgency.description}
+                        </div>
+                      )}
+
+                      {/* Details grid */}
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"10px 24px", marginBottom:24 }}>
+                        {[
+                          ["Location", [selectedAgency.hq_city, selectedAgency.hq_country].filter(Boolean).join(", ")],
+                          ["Headcount", selectedAgency.headcount],
+                          ["Founded", selectedAgency.founded_year],
+                          ["Geographic Focus", selectedAgency.geographic_focus],
+                          ["Outreach Status", selectedAgency.outreach_status],
+                          ["Added", selectedAgency.created_at ? new Date(selectedAgency.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : null],
+                        ].filter(([,v]) => v).map(([label, value]) => (
+                          <div key={label}>
+                            <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:3 }}>{label}</div>
+                            <div style={{ fontSize:13, color:"#1A1A1A" }}>{value}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Specialization */}
+                      {selectedAgency.specialization && selectedAgency.specialization.length > 0 && (
+                        <div style={{ marginBottom:20 }}>
+                          <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>Specialization</div>
+                          <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                            {selectedAgency.specialization.map((s, i) => (
+                              <span key={i} style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:500, background:"#EDE9FE", color:"#6D28D9" }}>{s}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Competitor reasoning */}
+                      {selectedAgency.is_direct_competitor_reason && (
+                        <div style={{ marginBottom:20 }}>
+                          <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>Competitor Assessment</div>
+                          <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, padding:"10px 14px", background:"#FEF2F2", borderRadius:6, border:"1px solid #FECACA" }}>
+                            {selectedAgency.is_direct_competitor_reason}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Quality reasoning */}
+                      {selectedAgency.quality_reason && (
+                        <div style={{ marginBottom:20 }}>
+                          <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:6 }}>Quality Assessment</div>
+                          <div style={{ fontSize:12, color:"#6B6F76", lineHeight:1.6, padding:"10px 14px", background:"#F7F7F8", borderRadius:6 }}>
+                            {selectedAgency.quality_reason}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* GF / Contacts */}
+                      <div style={{ marginBottom:20, paddingTop:16, borderTop:"1px solid #EBEBED" }}>
+                        <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.5, marginBottom:10 }}>
+                          Contacts {agencyContacts.length > 0 ? `(${agencyContacts.length})` : ""}
+                        </div>
+                        {agencyContacts.length === 0 ? (
+                          <div style={{ fontSize:12, color:"#A0A3A9", padding:16, textAlign:"center" }}>No contacts found yet</div>
+                        ) : (
+                          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                            {agencyContacts.map((c, i) => (
+                              <div key={c.id || i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", background:"#F7F7F8", borderRadius:10 }}>
+                                <div style={{ width:36, height:36, borderRadius:8, background:"#1A1A1A", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700, color:"#fff", flexShrink:0 }}>
+                                  {c.name?.charAt(0) || "?"}
+                                </div>
+                                <div style={{ flex:1, minWidth:0 }}>
+                                  <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                                    <span style={{ fontSize:13, fontWeight:600, color:"#1A1A1A" }}>{c.name}</span>
+                                    {c.is_primary && <span style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:3, background:"#FEF3C7", color:"#92400E" }}>GF</span>}
+                                    {c.confidence && (
+                                      <span style={{ fontSize:9, fontWeight:600, padding:"1px 5px", borderRadius:3,
+                                        background: c.confidence==="high"?"#D1FAE5":c.confidence==="medium"?"#FEF3C7":"#F2F3F5",
+                                        color: c.confidence==="high"?"#065F46":c.confidence==="medium"?"#92400E":"#6B6F76",
+                                      }}>{c.confidence}</span>
+                                    )}
+                                  </div>
+                                  <div style={{ fontSize:11, color:"#6B6F76", marginTop:1 }}>{c.title || ""}</div>
+                                  <div style={{ display:"flex", gap:8, marginTop:4, flexWrap:"wrap" }}>
+                                    {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noopener" style={{ fontSize:11, color:"#0A66C2", textDecoration:"none", fontWeight:600 }}>LinkedIn</a>}
+                                    {c.email && <a href={`mailto:${c.email}`} style={{ fontSize:11, color:"#5B5FC7", textDecoration:"none" }}>{c.email}</a>}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               );
             })()
           ) : tab === "companies" ? (
