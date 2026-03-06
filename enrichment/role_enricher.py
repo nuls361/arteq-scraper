@@ -397,14 +397,24 @@ def upsert_dm_contact(name, title, linkedin_url, company_id):
 
     if existing and len(existing) > 0:
         contact_id = existing[0]["id"]
+        name_parts = name.strip().split(None, 1)
+        first_name = name_parts[0] if name_parts else ""
+        last_name = name_parts[1] if len(name_parts) > 1 else ""
         update = {k: v for k, v in {
+            "first_name": first_name,
+            "last_name": last_name,
             "title": title,
             "linkedin_url": linkedin_url,
         }.items() if v}
         if update:
             supabase_request("PATCH", f"contact?id=eq.{contact_id}", data=update)
     else:
+        name_parts = name.strip().split(None, 1)
+        first_name = name_parts[0] if name_parts else ""
+        last_name = name_parts[1] if len(name_parts) > 1 else ""
         result = supabase_request("POST", "contact", data={
+            "first_name": first_name,
+            "last_name": last_name,
             "name": name,
             "title": title or "",
             "linkedin_url": linkedin_url or "",

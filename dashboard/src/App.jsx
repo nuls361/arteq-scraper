@@ -1048,17 +1048,7 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
                 /* Hiring Manager view for roles */
                 <div>
                   {role.hiring_manager_name ? (
-                    <div onClick={() => onOpenPerson && onOpenPerson({
-                      id: `hm_${role.id}`,
-                      name: role.hiring_manager_name,
-                      title: role.hiring_manager_title,
-                      role_at_company: role.hiring_manager_title,
-                      linkedin_url: role.hiring_manager_linkedin,
-                      is_decision_maker: true,
-                      company_id: role.company_id,
-                    })} style={{ border:"1px solid #EBEBED", borderRadius:10, padding:"20px 22px", background:"#FAFAFA", cursor:"pointer", transition:"background 0.15s" }}
-                      onMouseEnter={e => e.currentTarget.style.background="#F0F0F2"}
-                      onMouseLeave={e => e.currentTarget.style.background="#FAFAFA"}>
+                    <div style={{ border:"1px solid #EBEBED", borderRadius:10, padding:"20px 22px", background:"#FAFAFA" }}>
                       <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:16 }}>
                         <div style={{ width:48, height:48, borderRadius:10, background:"#1A1A1A", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:700, color:"#fff", flexShrink:0 }}>
                           {role.hiring_manager_name.charAt(0)}
@@ -1346,6 +1336,81 @@ function CompanyDetailView({ company, contacts = [], onClose, onContactsChanged,
               </div>
 
               {/* Roles at this company (from person view) */}
+              {companyRoles.length > 0 && (
+                <div style={{ marginTop:20, paddingTop:16, borderTop:"1px solid #EBEBED" }}>
+                  <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:10 }}>Open Roles ({companyRoles.length})</div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                    {companyRoles.map(r => (
+                      <div key={r.id} onClick={() => onOpenRole && onOpenRole(r)} style={{
+                        display:"flex", alignItems:"center", gap:8, padding:"8px 10px",
+                        background:"#F7F7F8", borderRadius:6, cursor:"pointer", fontSize:12,
+                      }}
+                        onMouseEnter={e => e.currentTarget.style.background="#EBEBED"}
+                        onMouseLeave={e => e.currentTarget.style.background="#F7F7F8"}>
+                        <TierPill tier={r.tier} />
+                        <span style={{ fontWeight:600, color:"#1A1A1A", flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cleanTitle(r.title)}</span>
+                        <Score v={r.final_score ?? r.rule_score} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : role && detailTab === "contacts" && role.hiring_manager_name ? (
+            <>
+              {/* Hiring Manager Details */}
+              <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:12 }}>Hiring Manager</div>
+              <div style={{ display:"grid", gridTemplateColumns:"100px 1fr", gap:"8px 12px", fontSize:12 }}>
+                {[
+                  ["Name", role.hiring_manager_name || "—"],
+                  ["Title", role.hiring_manager_title || "—"],
+                  ["LinkedIn", role.hiring_manager_linkedin],
+                  ["Confidence", null],
+                  ["DM", "Yes"],
+                ].map(([label, value]) => {
+                  let rendered = value || "—";
+                  if (label === "LinkedIn" && value) rendered = <a href={value} target="_blank" rel="noopener" style={{ fontSize:12, color:"#0A66C2", textDecoration:"none", fontWeight:600 }}>Profile ↗</a>;
+                  else if (label === "Confidence" && role.hiring_manager_confidence) rendered = <span style={{ padding:"2px 6px", borderRadius:3, fontSize:11, fontWeight:600, background: role.hiring_manager_confidence === "high" ? "#D1FAE5" : role.hiring_manager_confidence === "medium" ? "#FEF3C7" : "#F2F3F5", color: role.hiring_manager_confidence === "high" ? "#065F46" : role.hiring_manager_confidence === "medium" ? "#92400E" : "#6B6F76" }}>{role.hiring_manager_confidence}</span>;
+                  else if (label === "DM") rendered = <span style={{ fontSize:11, fontWeight:700, padding:"2px 6px", borderRadius:3, background:"#FDECEC", color:"#C13030" }}>Decision Maker</span>;
+                  return (
+                    <div key={label} style={{ display:"contents" }}>
+                      <div style={{ color:"#A0A3A9", fontSize:12 }}>{label}</div>
+                      <div style={{ color:"#1A1A1A" }}>{rendered}</div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Company section */}
+              {company && (
+                <div style={{ marginTop:28, paddingTop:20, borderTop:"1px solid #EBEBED" }}>
+                  <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:12 }}>Company</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"100px 1fr", gap:"8px 12px", fontSize:12 }}>
+                    {[
+                      ["Name", company.name],
+                      ["Domain", company.domain || "—"],
+                      ["Industry", company.industry || "—"],
+                      ["Fit", company.arteq_fit],
+                      ["Funding", company.funding_stage && company.funding_stage !== "unknown" ? company.funding_stage : "—"],
+                      ["Headcount", company.headcount || "—"],
+                      ["HQ", company.hq_city || "—"],
+                    ].map(([label, value]) => {
+                      let rendered = value || "—";
+                      if (label === "Fit" && value && fitColors[value]) {
+                        rendered = <span style={{ padding:"2px 6px", borderRadius:3, fontSize:11, fontWeight:500, background:fitColors[value].bg, color:fitColors[value].color }}>{value}</span>;
+                      }
+                      return (
+                        <div key={label} style={{ display:"contents" }}>
+                          <div style={{ color:"#A0A3A9", fontSize:12 }}>{label}</div>
+                          <div style={{ color:"#1A1A1A" }}>{rendered}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Open roles at this company */}
               {companyRoles.length > 0 && (
                 <div style={{ marginTop:20, paddingTop:16, borderTop:"1px solid #EBEBED" }}>
                   <div style={{ fontSize:10, fontWeight:600, color:"#A0A3A9", textTransform:"uppercase", letterSpacing:0.8, marginBottom:10 }}>Open Roles ({companyRoles.length})</div>
