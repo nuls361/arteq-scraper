@@ -2290,12 +2290,9 @@ export default function ALineCRM() {
                             if (!name) return <span style={{ color:"#A0A3A9", fontSize:12 }}>—</span>;
                             const title = dm?.title || r.hiring_manager_title;
                             const url = dm?.linkedin_url || r.hiring_manager_linkedin;
-                            return (
-                              <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
-                                {url ? <a href={url} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{ fontSize:12, fontWeight:600, color:"#1A1A1A", textDecoration:"none" }}>{name}</a> : <span style={{ fontSize:12, fontWeight:600, color:"#1A1A1A" }}>{name}</span>}
-                                {title && <span style={{ fontSize:10, color:"#A0A3A9" }}>{title}</span>}
-                              </div>
-                            );
+                            return url
+                              ? <a href={url} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{ fontSize:12, fontWeight:600, color:"#1A1A1A", textDecoration:"none" }}>{name}</a>
+                              : <span style={{ fontSize:12, fontWeight:600, color:"#1A1A1A" }}>{name}</span>;
                           })()}
                         </td>
                         <td style={{ padding:"9px 14px" }}><EngPill type={r.engagement_type} /></td>
@@ -2350,9 +2347,6 @@ export default function ALineCRM() {
                         onMouseLeave={e => e.currentTarget.style.background="transparent"}>
                         <td style={{ padding:"9px 14px" }}>
                           <div style={{ fontWeight:600, fontSize:13 }}>{a.name}</div>
-                          <div style={{ fontSize:11, color:"#6B6F76" }}>
-                            {a.domain && <a href={`https://${a.domain}`} target="_blank" rel="noopener" onClick={e=>e.stopPropagation()} style={{ color:"#5B5FC7", textDecoration:"none" }}>{a.domain}</a>}
-                          </div>
                         </td>
                         <td style={{ padding:"9px 14px" }}>
                           {a.is_direct_competitor ? (
