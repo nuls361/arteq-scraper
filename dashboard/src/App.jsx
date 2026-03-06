@@ -2229,12 +2229,11 @@ export default function ALineCRM() {
                 <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
                   <thead>
                     <tr>
-                      <ColHead width="16.6%">Agency</ColHead>
-                      <ColHead width="16.6%">Status</ColHead>
-                      <ColHead width="16.6%">Headcount</ColHead>
-                      <ColHead width="16.6%">Location</ColHead>
-                      <ColHead width="16.6%">Outreach</ColHead>
-                      <ColHead width="16.6%">Added</ColHead>
+                      <ColHead width="20%">Agency</ColHead>
+                      <ColHead width="20%">Status</ColHead>
+                      <ColHead width="20%">Location</ColHead>
+                      <ColHead width="20%">Outreach</ColHead>
+                      <ColHead width="20%">Added</ColHead>
                     </tr>
                   </thead>
                   <tbody>
@@ -2256,7 +2255,6 @@ export default function ALineCRM() {
                         <td style={{ padding:"9px 14px" }}>
                           <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background: a.enrichment_status==="enriched"?"#D1FAE5":"#FEF3C7", color: a.enrichment_status==="enriched"?"#065F46":"#92400E" }}>{a.enrichment_status || "pending"}</span>
                         </td>
-                        <td style={{ padding:"9px 14px", fontSize:12, color:"#6B6F76" }}>{a.headcount || "—"}</td>
                         <td style={{ padding:"9px 14px", fontSize:12, color:"#6B6F76" }}>{[a.hq_city, a.hq_country].filter(Boolean).join(", ") || "—"}</td>
                         <td style={{ padding:"9px 14px" }}>
                           <span style={{ padding:"3px 8px", borderRadius:4, fontSize:11, fontWeight:500, background:"#F2F3F5", color:"#6B6F76" }}>{a.outreach_status || "pending"}</span>
