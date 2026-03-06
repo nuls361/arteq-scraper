@@ -516,29 +516,31 @@ def enrich_company(company):
             dm = " [DM]" if c.get("is_decision_maker") else ""
             context += f"  - {ci.get('name', '?')} ({ci.get('title', '?')}){dm} {'email' if ci.get('email') else ''}\n"
 
-    prompt = f"""Du bist der AI-Agent für A-Line, eine DACH-Fractional/Interim-Executive-Vermittlung.
+    prompt = f"""You are the AI agent for A-Line, a DACH-focused Fractional/Interim Executive placement firm.
 
-Erstelle eine Company-Bewertung:
+Create a company assessment:
 
 {context}
 
-Antworte in JSON:
+Respond in JSON:
 {{
   "composite_score": 0-100,
   "arteq_fit": "high|medium|low",
-  "revenue_estimate": "geschätzter Umsatz basierend auf Headcount + Industry + Funding",
-  "summary": "2-3 Sätze: Was macht die Company, warum ist sie relevant für A-Line?",
+  "revenue_estimate": "estimated revenue based on headcount + industry + funding",
+  "summary": "2-3 sentences: What does the company do, why is it relevant for A-Line?",
   "recommended_status": "lead|prospect|active",
   "outreach_priority": 1-10,
-  "dossier_html": "<h3>Company Dossier: [Name]</h3><p>Zusammenfassung...</p><h4>Why A-Line?</h4><p>...</p>"
+  "dossier_html": "<h3>Company Dossier: [Name]</h3><p><strong>Industry:</strong> ... <strong>HQ:</strong> ... <strong>Status:</strong> ...</p><h4>Open Role Analysis</h4><p>...</p><h4>Why A-Line?</h4><ul><li>...</li></ul><h4>Next Steps</h4><ul><li>...</li></ul>"
 }}
 
-Kriterien:
+Scoring criteria:
 - Hot Roles + Interim/Fractional signal → high fit
-- Series A+ Funding + schnelles Wachstum → likely need leadership
+- Series A+ Funding + rapid growth → likely need leadership
 - C-Level departure + no replacement → urgent
-- DM mit Email vorhanden → outreach-ready (Bonus)
-- Agentur/Beratung → low fit (score niedrig)"""
+- Decision maker with email available → outreach-ready (bonus)
+- Agency/consultancy → low fit (low score)
+
+IMPORTANT: Write ALL dossier_html content in English."""
 
     text = claude_request(prompt, max_tokens=1500)
     if text:
