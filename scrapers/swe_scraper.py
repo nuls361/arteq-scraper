@@ -619,10 +619,7 @@ Respond ONLY in JSON:
                     score = cls.get("score", 0)
                     is_disqualified = cls.get("is_disqualified", False)
 
-                    if is_disqualified or score < 5:
-                        continue
-
-                    tier = score_to_tier(score)
+                    tier = "disqualified" if (is_disqualified or score < 5) else score_to_tier(score)
                     job["score"] = score
                     job["tier"] = tier
                     job["reason"] = cls.get("reason", "")
